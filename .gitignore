@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.superpowers/
+.wrangler/
+.env
+.DS_Store
+*.log

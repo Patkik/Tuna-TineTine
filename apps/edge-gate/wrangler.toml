@@ -1,0 +1,7 @@
+name = "kristine-beach-edge-gate"
+main = "src/index.ts"
+compatibility_date = "2024-11-01"
+
+[vars]
+TARGET_DATE = "2027-02-05T00:00:00+08:00"
+TARGET_EPOCH_MS = "1801756800000"
