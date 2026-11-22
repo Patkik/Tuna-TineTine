@@ -23,7 +23,7 @@ export function CountdownSign({ serverNowMs }: CountdownSignProps) {
 
   return (
     <div class="countdown-wrapper">
-      <div class="countdown-sign interactive" aria-label="Birthday countdown to February 5, 2027">
+      <div class="countdown-sign" aria-label="Birthday countdown to February 5, 2027">
         <div class="countdown-label">🌊 Opens Feb 5, 2027 • Kristine</div>
         <div class="countdown-digits">
           <div class="countdown-unit">
