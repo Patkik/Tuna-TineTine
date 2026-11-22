@@ -1,33 +1,56 @@
 import { describe, it, expect } from 'vitest';
+import html from '../index.html?raw';
 
-describe('Viewport and Mobile Shell Config', () => {
-  it('should define safe viewport meta for Android Chrome', () => {
-    const metaViewport = 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover';
-    expect(metaViewport).toContain('viewport-fit=cover');
-    expect(metaViewport).toContain('user-scalable=no');
+function readLocalFile(relativePath: string): string {
+  const proc = (
+    globalThis as unknown as {
+      process?: {
+        getBuiltinModule?: (name: string) => {
+          readFileSync: (url: URL, encoding: string) => string;
+        };
+      };
+    }
+  ).process;
+  const fsMod = proc?.getBuiltinModule?.('node:fs');
+  if (!fsMod) {
+    throw new Error('Node builtin fs module unavailable');
+  }
+  return fsMod.readFileSync(new URL(relativePath, import.meta.url), 'utf-8');
+}
+
+describe('Android Viewport, Safe-Area & Modern Web Guidance CSS', () => {
+  const css = readLocalFile('../src/styles/shell.css');
+
+  it('configures viewport-fit=cover in index.html', () => {
+    expect(html).toContain('viewport-fit=cover');
+    expect(html).toContain('#0EA5E9');
   });
 
-  it('should define 100dvh root constraints in CSS tokens', () => {
-    const rootStyle = {
-      height: '100dvh',
-      width: '100vw',
-      overflow: 'hidden',
-      overscrollBehavior: 'none',
-      touchAction: 'none',
-    };
-    expect(rootStyle.height).toBe('100dvh');
-    expect(rootStyle.touchAction).toBe('none');
+  it('locks #app to 100dvw x 100dvh, sets full-bleed .stage-frame container query, and blocks swipe-back', () => {
+    expect(css).toContain('width: 100dvw');
+    expect(css).toContain('height: 100dvh');
+    expect(css).toContain('width: 100%');
+    expect(css).toContain('height: 100%');
+    expect(css).toContain('container: beach-stage / size');
+    expect(css).toContain('overscroll-behavior: none');
+    expect(css).toContain('touch-action: none');
   });
 
-  it('should use chocolate-brown outline token not pure black', () => {
-    const outlineColor = '#4A2C1D';
-    expect(outlineColor).not.toBe('#000000');
-    expect(outlineColor).toBe('#4A2C1D');
+  it('enforces all 4 safe-area insets, CSS containment, and >= 44px touch targets on coarse pointers', () => {
+    expect(css).toContain('env(safe-area-inset-top');
+    expect(css).toContain('env(safe-area-inset-bottom');
+    expect(css).toContain('env(safe-area-inset-left');
+    expect(css).toContain('env(safe-area-inset-right');
+    expect(css).toContain('contain: layout style paint');
+    expect(css).toContain('@media (pointer: coarse)');
+    expect(css).toContain('--target-size: 44px');
   });
 
-  it('should enforce DPR cap of 2 to protect Android battery', () => {
-    const mockDpr = 3.0;
-    const capped = Math.min(mockDpr, 2);
-    expect(capped).toBe(2);
+  it('uses native top-layer dialog scroll containment and discrete exit rules', () => {
+    expect(css).toContain('dialog.beach-dialog:modal');
+    expect(css).toContain('dialog.beach-dialog::backdrop');
+    expect(css).toContain('overscroll-behavior: contain');
+    expect(css).toContain('transition-behavior: allow-discrete');
+    expect(css).toContain('@starting-style');
   });
 });

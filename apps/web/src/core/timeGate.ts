@@ -1,16 +1,30 @@
 /**
- * timeGate.ts — Authoritative time-lock engine
- * Never check new Date() alone — always validate against Cloudflare Worker edge time.
- * Target: February 5, 2027, 00:00:00 UTC+8 (Asia/Manila)
+ * timeGate.ts — Authoritative Feb 5, 2027 (00:00 UTC+8 / Asia/Manila) gate.
+ * Zero birthday copy lives in this Stage 1 module.
  */
+import type { BirthdayContent } from '../../../edge-gate/src/content';
 
-/** Feb 5, 2027, 00:00:00 UTC+8 → 1801756800 * 1000ms */
+/** 2027-02-05T00:00:00+08:00 in Unix epoch milliseconds. */
 export const TARGET_DATE_MS = 1801756800000;
 
-/** PREVIEW_TOKEN — set via Cloudflare Worker secret, never hardcoded here */
-const VALID_PREVIEW_TOKEN = import.meta.env.VITE_PREVIEW_TOKEN ?? '';
+const TEST_UNLOCK_PASSWORD = 'tuna';
 
-export interface CountdownParts {
+export function isValidTestPassword(input: string): boolean {
+  return input.trim().toLowerCase() === TEST_UNLOCK_PASSWORD;
+}
+
+export function isPreviewQueryPresent(search?: string): boolean {
+  const query =
+    search !== undefined
+      ? search
+      : typeof window !== 'undefined'
+        ? window.location.search
+        : '';
+  const token = new URLSearchParams(query).get('preview');
+  return Boolean(token && token.trim().length > 0);
+}
+
+export interface RemainingTime {
   days: number;
   hours: number;
   minutes: number;
@@ -18,67 +32,126 @@ export interface CountdownParts {
   totalMs: number;
 }
 
-export interface TimeStatus {
+export interface TimeGateStatus {
   unlocked: boolean;
   serverNow: number;
   unlockAt: number;
   remainingMs: number;
+  content?: BirthdayContent;
 }
 
-/**
- * Returns true if the given epoch is at or past the unlock date,
- * OR if a matching preview token is supplied.
- */
-export function isUnlocked(serverNowMs: number, previewToken?: string | null): boolean {
-  if (previewToken && previewToken === VALID_PREVIEW_TOKEN && VALID_PREVIEW_TOKEN !== '') {
-    return true;
-  }
-  return serverNowMs >= TARGET_DATE_MS;
+export function isUnlocked(nowMs: number): boolean {
+  return nowMs >= TARGET_DATE_MS;
 }
 
-/**
- * Calculates countdown parts from now to the target epoch.
- */
-export function calculateRemainingTime(targetMs: number, currentMs: number): CountdownParts {
-  const totalMs = Math.max(0, targetMs - currentMs);
-  const totalSeconds = Math.floor(totalMs / 1000);
+export function calculateRemainingTime(targetMs: number, nowMs: number): RemainingTime {
+  const diff = Math.max(0, targetMs - nowMs);
+  const totalSeconds = Math.floor(diff / 1000);
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
   const seconds = totalSeconds % 60;
-  const totalMinutes = Math.floor(totalSeconds / 60);
-  const minutes = totalMinutes % 60;
-  const totalHours = Math.floor(totalMinutes / 60);
-  const hours = totalHours % 24;
-  const days = Math.floor(totalHours / 24);
 
-  return { days, hours, minutes, seconds, totalMs };
+  return { days, hours, minutes, seconds, totalMs: diff };
+}
+
+function isLocalhost(): boolean {
+  if (typeof window === 'undefined') return false;
+  const host = window.location.hostname;
+  return host === 'localhost' || host === '127.0.0.1';
+}
+
+function isLocalDevBypassToken(previewToken?: string | null): boolean {
+  if (!previewToken) return false;
+  const trimmed = previewToken.trim();
+  const isDevEnv = typeof import.meta !== 'undefined' && Boolean(import.meta.env?.DEV);
+  if (!isLocalhost() && !isDevEnv) return false;
+  return trimmed === 'dev' || trimmed === 'dev_preview_token_2027';
 }
 
 /**
- * Fetches authoritative time status from Cloudflare Worker edge.
- * Falls back gracefully to { unlocked: false } on network error.
+ * Fetch authoritative unlock state from Cloudflare Worker /api/status.
+ * Falls back safely to locked client countdown on network errors unless
+ * running locally on localhost/127.0.0.1 (or Vite dev) with ?preview=dev / dev_preview_token_2027.
  */
 export async function fetchAuthoritativeStatus(
-  apiUrl: string,
-  previewToken?: string | null
-): Promise<TimeStatus> {
+  apiBase = '/api',
+  previewToken?: string | null,
+): Promise<TimeGateStatus> {
+  const query = previewToken ? `?preview=${encodeURIComponent(previewToken)}` : '';
+  const url = `${apiBase}/status${query}`;
+
   try {
-    const url = new URL(`${apiUrl}/api/status`);
-    if (previewToken) url.searchParams.set('preview', previewToken);
-
-    const res = await fetch(url.toString(), {
-      cache: 'no-store',
-      signal: AbortSignal.timeout(5000),
-    });
-
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return await res.json() as TimeStatus;
+    const res = await fetch(url, { cache: 'no-store' });
+    if (res.ok) {
+      const data = (await res.json()) as TimeGateStatus;
+      if (typeof data.unlocked === 'boolean' && typeof data.serverNow === 'number') {
+        return data;
+      }
+    }
   } catch {
-    // Network unavailable — conservative: stay locked, use client countdown only
-    const clientNow = Date.now();
+    // Worker unreachable (e.g., local Vite dev server without wrangler dev)
+  }
+
+  const now = Date.now();
+  if (isLocalDevBypassToken(previewToken)) {
     return {
-      unlocked: false,
-      serverNow: clientNow,
+      unlocked: true,
+      serverNow: now,
       unlockAt: TARGET_DATE_MS,
-      remainingMs: Math.max(0, TARGET_DATE_MS - clientNow),
+      remainingMs: 0,
     };
   }
+
+  return {
+    unlocked: false,
+    serverNow: now,
+    unlockAt: TARGET_DATE_MS,
+    remainingMs: Math.max(0, TARGET_DATE_MS - now),
+  };
+}
+
+/**
+ * Unlock the experience with the test password (`tuna`), querying the authoritative
+ * Cloudflare Worker when available and falling back locally/offline when unreachable.
+ */
+export async function unlockWithPassword(
+  password: string,
+  apiBase = '/api',
+): Promise<TimeGateStatus> {
+  const normalized = password.trim().toLowerCase();
+
+  try {
+    const res = await fetch(`${apiBase}/status`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: normalized }),
+      cache: 'no-store',
+    });
+    if (res.ok) {
+      const data = (await res.json()) as TimeGateStatus;
+      if (typeof data.unlocked === 'boolean' && typeof data.serverNow === 'number') {
+        return data;
+      }
+    }
+  } catch {
+    // Worker unreachable (e.g., local Vite dev server or static hosting without Worker)
+  }
+
+  const now = Date.now();
+  if (isValidTestPassword(normalized)) {
+    return {
+      unlocked: true,
+      serverNow: now,
+      unlockAt: TARGET_DATE_MS,
+      remainingMs: 0,
+    };
+  }
+
+  return {
+    unlocked: false,
+    serverNow: now,
+    unlockAt: TARGET_DATE_MS,
+    remainingMs: Math.max(0, TARGET_DATE_MS - now),
+  };
 }

@@ -1,106 +1,83 @@
 /**
- * OceanLayer.ts — Mid-ocean: turquoise water, foam lines, bobbing sailboats
+ * OceanLayer.ts — Stylized cel-shaded ocean gradient (#58C4F6 -> #7DD3FC -> #BAE6FD),
+ * crisp drifting horizontal white sunlight shimmer streaks, and scalloped tide foam.
+ * Over-scanned horizontally so 0.7x gyroscope diorama parallax never exposes edge seams.
  */
-import { Container, Graphics, Ticker } from 'pixi.js';
-import gsap from 'gsap';
+import { Container, Graphics } from 'pixi.js';
+import type { SceneLayout } from '../layout/sceneLayout';
+import type { AtmosphereClock } from '../atmosphere/AtmosphereClock';
+import { createOceanTideFilter, type OceanTideController } from '../shaders/oceanTide';
+
+const PARALLAX_OVERSCAN = 40;
 
 export class OceanLayer extends Container {
-  private oceanBg!: Graphics;
-  private foamLines: Graphics[] = [];
-  private sailboats: Container[] = [];
-  private waveOffset = 0;
+  private waterQuad = new Graphics();
+  private shimmerGraphics = new Graphics();
+  private fallbackFoam = new Graphics();
+  private tideController: OceanTideController | null = null;
+  private oceanWidth = 1024;
+  private oceanTop = 300;
+  private oceanBandHeight = 96;
+  private unitScale = 1;
 
   constructor() {
     super();
-    this.drawOcean(375, 812);
-    this.drawSailboats();
-  }
+    this.addChild(this.waterQuad);
+    this.addChild(this.shimmerGraphics);
 
-  drawOcean(w: number, h: number): void {
-    const oceanY = h * 0.52;
-    const oceanH = h * 0.2;
-
-    if (this.oceanBg) {
-      this.oceanBg.clear();
-    } else {
-      this.oceanBg = new Graphics();
-      this.addChildAt(this.oceanBg, 0);
-    }
-
-    // Ocean band
-    this.oceanBg.rect(0, oceanY, w, oceanH);
-    this.oceanBg.fill({ color: 0x7DD3FC });
-
-    // Foam/wave stripes
-    for (let i = 0; i < 3; i++) {
-      const fy = oceanY + (oceanH / 4) * (i + 0.5);
-      this.oceanBg.rect(0, fy, w, 3);
-      this.oceanBg.fill({ color: 0xFFFFFF, alpha: 0.5 });
+    try {
+      this.tideController = createOceanTideFilter();
+      this.waterQuad.filters = [this.tideController.filter];
+    } catch {
+      this.tideController = null;
+      this.addChild(this.fallbackFoam);
     }
   }
 
-  private drawSailboats(): void {
-    const positions = [
-      { x: 120, y: 0 },
-      { x: 260, y: 0 },
-    ];
+  applyLayout(layout: SceneLayout): void {
+    const { width: w, dunes, unitScale: u } = layout;
+    this.oceanWidth = w;
+    this.unitScale = u;
 
-    for (const pos of positions) {
-      const boat = new Container();
+    const top = dunes.horizonY;
+    const bottom = dunes.backSandY + 56 * u;
+    const height = Math.max(48, bottom - top);
+    this.oceanTop = top;
+    this.oceanBandHeight = height;
 
-      const hull = new Graphics();
-      hull.ellipse(0, 6, 22, 8);
-      hull.fill({ color: 0x4A2C1D });
+    this.waterQuad.clear();
+    this.waterQuad.rect(-PARALLAX_OVERSCAN, top, w + PARALLAX_OVERSCAN * 2, height);
+    this.waterQuad.fill({ color: 0x58c4f6 });
 
-      const sail = new Graphics();
-      sail.moveTo(0, -24);
-      sail.lineTo(16, 6);
-      sail.lineTo(-16, 6);
-      sail.closePath();
-      sail.fill({ color: 0xEF4444 });
-      sail.stroke({ color: 0x4A2C1D, width: 2 });
+    if (!this.tideController) {
+      this.fallbackFoam.clear();
+      this.fallbackFoam.rect(-PARALLAX_OVERSCAN, top + height * 0.7, w + PARALLAX_OVERSCAN * 2, 4);
+      this.fallbackFoam.fill({ color: 0xffffff, alpha: 0.82 });
+    }
+  }
 
-      boat.addChild(hull);
-      boat.addChild(sail);
-      boat.x = pos.x;
-      this.sailboats.push(boat);
-      this.addChild(boat);
+  update(_dt: number, clock: AtmosphereClock): void {
+    const w = this.oceanWidth;
+    const spanW = w + 120;
+    const u = Math.max(0.65, this.unitScale);
+    const bandH = this.oceanBandHeight * 0.62;
+
+    if (this.tideController) {
+      const midWind = clock.windAt(w * 0.5);
+      this.tideController.setUniforms(clock.time, midWind, clock.tidePhase(), 0.72);
     }
 
-    this.startSailboatBobbing();
-  }
-
-  private startSailboatBobbing(): void {
-    this.sailboats.forEach((boat, i) => {
-      gsap.to(boat, {
-        y: 5,
-        duration: 1.8 + i * 0.4,
-        yoyo: true,
-        repeat: -1,
-        ease: 'sine.inOut',
-        delay: i * 0.7,
-      });
-      gsap.to(boat, {
-        rotation: 0.06,
-        duration: 2.1 + i * 0.3,
-        yoyo: true,
-        repeat: -1,
-        ease: 'sine.inOut',
-        delay: i * 0.4,
-      });
-    });
-  }
-
-  resize(w: number, h: number): void {
-    this.drawOcean(w, h);
-
-    // Reposition sailboats relative to new width and ocean band
-    const oceanY = h * 0.52;
-    const baseBoatY = oceanY - 15;
-
-    this.sailboats.forEach((boat, i) => {
-      boat.x = w * (i === 0 ? 0.3 : 0.65);
-      boat.y = baseBoatY;
-    });
+    // Crisp staggered horizontal white sunlight shimmer bars matching preview canvas style
+    const sg = this.shimmerGraphics;
+    sg.clear();
+    const rowStep = bandH / 6.2;
+    for (let i = 0; i < 6; i++) {
+      const sy = this.oceanTop + 8 * u + i * rowStep;
+      const sx = -PARALLAX_OVERSCAN + ((i * 137 + clock.time * (18 + i * 4.5)) % spanW) - 30;
+      const len = (36 + (i % 3) * 20) * u;
+      sg.moveTo(sx, sy);
+      sg.lineTo(sx + len, sy);
+    }
+    sg.stroke({ color: 0xffffff, alpha: 0.58, width: Math.max(2, 2.5 * u), cap: 'round' });
   }
 }

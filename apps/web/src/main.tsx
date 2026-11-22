@@ -1,313 +1,330 @@
 /** @jsxImportSource preact */
-import { h, render } from 'preact';
-import { useEffect, useRef, useState } from 'preact/hooks';
+/**
+ * main.tsx — Stage 1 Entry Shell (<100 KB).
+ * Initializes single PixiJS v8 BeachStage locked to fixed 16:9 widescreen landscape with
+ * Unified AtmosphereClock & ParallaxController, shows LandscapeGuardOverlay in portrait,
+ * enforces Feb 5, 2027 time gate, and lazily loads BirthdayExperience ONLY after unlock.
+ */
+import { render, type ComponentType } from 'preact';
+import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
 import { BeachStage } from './engine/BeachStage';
+import {
+  computeFixedStageSize,
+  computeSceneLayout,
+  type SceneLayout,
+} from './engine/layout/sceneLayout';
+import { preloadStage1Textures } from './engine/assets/svgTextureFactory';
 import { SkyLayer } from './engine/layers/SkyLayer';
 import { OceanLayer } from './engine/layers/OceanLayer';
 import { SandLayer } from './engine/layers/SandLayer';
-import { DigScene } from './engine/scenes/DigScene';
-import type { Treasure } from './engine/scenes/DigScene';
-import { useStoryStore } from './store/useStoryStore';
+import { AtmosphereEffectsLayer } from './engine/layers/AtmosphereEffectsLayer';
+import {
+  fetchAuthoritativeStatus,
+  isPreviewQueryPresent,
+  unlockWithPassword,
+  type TimeGateStatus,
+} from './core/timeGate';
 import { audioManager } from './core/audioManager';
-import { fetchAuthoritativeStatus } from './core/timeGate';
+import { storyStore, useStoryStore } from './store/storyFsm';
 import { CountdownSign } from './ui/CountdownSign';
-import { TreasureCard } from './ui/TreasureCard';
-import { PolaroidStack } from './ui/PolaroidStack';
-import type { PolaroidData } from './ui/PolaroidStack';
-import { BirthdayLetter } from './ui/BirthdayLetter';
-import { KeepsakeExporter } from './ui/KeepsakeExporter';
+import { LandscapeGuardOverlay } from './ui/LandscapeGuardOverlay';
+import { toggleBrowserFullscreen } from './core/orientationGuard';
+import type { BirthdayExperienceProps } from './scenes/BirthdayExperience';
 import './styles/shell.css';
 
-const POLAROIDS: PolaroidData[] = [
-  { emoji: '🌊', caption: 'That day at the beach when everything felt perfect 🌊' },
-  { emoji: '🍵', caption: 'Tea time and endless conversations ☕' },
-  { emoji: '🌸', caption: 'Your laugh that makes everyone smile 🌸' },
-  { emoji: '⭐', caption: 'All the moments I\'m grateful for — especially you ⭐' },
-];
+function computeInitialMetrics() {
+  return computeFixedStageSize(window.innerWidth, window.innerHeight);
+}
 
 function App() {
+  const frameRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const stageRef = useRef<BeachStage | null>(null);
   const skyRef = useRef<SkyLayer | null>(null);
+  const oceanRef = useRef<OceanLayer | null>(null);
   const sandRef = useRef<SandLayer | null>(null);
-  const digRef = useRef<DigScene | null>(null);
+  const effectsRef = useRef<AtmosphereEffectsLayer | null>(null);
+  const initialFrame = computeInitialMetrics();
+  const layoutRef = useRef<SceneLayout>(
+    computeSceneLayout(initialFrame.width, initialFrame.height),
+  );
+
+  const [ready, setReady] = useState(false);
   const [serverNow, setServerNow] = useState(Date.now());
-  const [initialized, setInitialized] = useState(false);
-  const [showSandbox, setShowSandbox] = useState(false);
+  const [passwordModalOpen, setPasswordModalOpen] = useState(false);
+  const [PasswordComp, setPasswordComp] = useState<ComponentType<{
+    onClose: () => void;
+    onSubmitPassword: (pw: string) => Promise<boolean>;
+  }> | null>(null);
+  const [isPortraitViewport, setIsPortraitViewport] = useState(initialFrame.isPortraitViewport);
+  const [promptDismissed, setPromptDismissed] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(
+    () => typeof document !== 'undefined' && Boolean(document.fullscreenElement),
+  );
+  const [ExperienceComp, setExperienceComp] =
+    useState<ComponentType<BirthdayExperienceProps> | null>(null);
 
   const {
-    currentAct,
-    setAct,
-    unearthItem,
-    activeTreasureCard,
-    dugItems,
-    dismissTreasureCard,
-    blowOutCandles,
+    currentState,
+    unlocked,
+    muted,
+    toggleMute,
+    setUnlocked,
+    setUnlockedContent,
     unlockAudio,
-    markKeepsake,
   } = useStoryStore();
 
-  // --- Initialize PixiJS engine ---
+  const getLayout = useCallback(() => layoutRef.current, []);
+
+  // Track viewport orientation cleanly so portrait triggers LandscapeGuardOverlay
   useEffect(() => {
-    if (!canvasRef.current || initialized) return;
-    setInitialized(true);
+    const updateOrientationState = () => {
+      const next = computeFixedStageSize(window.innerWidth, window.innerHeight);
+      setIsPortraitViewport(next.isPortraitViewport);
+      if (!next.isPortraitViewport) {
+        setPromptDismissed(false);
+      }
+    };
+
+    const updateFullscreenState = () => {
+      setIsFullscreen(Boolean(document.fullscreenElement));
+    };
+
+    const mql = window.matchMedia?.('(orientation: portrait)');
+    window.addEventListener('resize', updateOrientationState);
+    window.addEventListener('orientationchange', updateOrientationState);
+    document.addEventListener('fullscreenchange', updateFullscreenState);
+    mql?.addEventListener?.('change', updateOrientationState);
+    return () => {
+      window.removeEventListener('resize', updateOrientationState);
+      window.removeEventListener('orientationchange', updateOrientationState);
+      document.removeEventListener('fullscreenchange', updateFullscreenState);
+      mql?.removeEventListener?.('change', updateOrientationState);
+    };
+  }, []);
+
+  // Lazy-load PasswordDialog ONLY if the secret octopus is tapped while locked
+  useEffect(() => {
+    if (!passwordModalOpen || PasswordComp) return;
+    void import('./ui/PasswordDialog').then(({ PasswordDialog }) => {
+      setPasswordComp(() => PasswordDialog);
+    });
+  }, [passwordModalOpen, PasswordComp]);
+
+  const activateUnlockedShell = useCallback(
+    async (status: TimeGateStatus, previewMode: boolean, isDisposed?: () => boolean) => {
+      setServerNow(status.serverNow);
+      if (status.content) {
+        setUnlockedContent(status.content);
+      }
+      setUnlocked(true, previewMode);
+      // Dynamically chunk unlocked experience ONLY after authoritative unlock
+      const mod = await import('./scenes/BirthdayExperience');
+      if (isDisposed?.()) return;
+      setExperienceComp(() => mod.default);
+    },
+    [setUnlocked, setUnlockedContent],
+  );
+
+  // Enable open-sky swipe wind on Beat 0, Beat 1 & Sandbox play; keep background plane gentle later
+  useEffect(() => {
+    const sky = skyRef.current;
+    const stage = stageRef.current;
+    if (sky) {
+      sky.setSwipeWindEnabled(
+        currentState === 'LOCKED_GATE' ||
+          currentState === 'SKY_CUE' ||
+          currentState === 'PLANE_3_PASS' ||
+          currentState === 'TWILIGHT_KEEPSAKE',
+      );
+      if (currentState === 'LOCKED_GATE') {
+        sky.resetBirthdayReveal();
+      }
+    }
+    if (stage) {
+      stage.setAmbientBreathEnabled(currentState !== 'LOCKED_GATE');
+    }
+  }, [currentState, ready]);
+
+  useEffect(() => {
+    if (!canvasRef.current) return;
+    let disposed = false;
 
     const stage = new BeachStage(canvasRef.current);
     stageRef.current = stage;
 
-    stage.init().then(() => {
-      const sky = new SkyLayer();
-      const ocean = new OceanLayer();
-      const sand = new SandLayer();
-      skyRef.current = sky;
-      sandRef.current = sand;
+    const applyAllLayouts = (w: number, h: number) => {
+      const next = computeSceneLayout(w, h);
+      layoutRef.current = next;
+      skyRef.current?.applyLayout(next);
+      oceanRef.current?.applyLayout(next);
+      sandRef.current?.applyLayout(next);
+      effectsRef.current?.applyLayout(next);
+      window.dispatchEvent(new Event('beach-stage-resize'));
+    };
 
-      stage.stage.addChild(sky);
-      stage.stage.addChild(ocean);
-      stage.stage.addChild(sand);
-
-      // Initial layout
-      const w = window.innerWidth;
-      const h = window.innerHeight;
-      sky.resize(w, h);
-      ocean.resize(w, h);
-      sand.resize(w, h);
-
-      // Resize observer
-      const ro = new ResizeObserver(() => {
-        const nw = window.innerWidth;
-        const nh = window.innerHeight;
-        sky.resize(nw, nh);
-        ocean.resize(nw, nh);
-        sand.resize(nw, nh);
-        digRef.current?.resize(nw, nh);
-      });
-      ro.observe(document.documentElement);
-
-      // Check time gate
-      const previewToken = new URLSearchParams(window.location.search).get('preview');
-      fetchAuthoritativeStatus('/api', previewToken).then((status) => {
-        setServerNow(status.serverNow);
-        if (status.unlocked) {
-          // Slight delay to show the beach before transitioning
-          setTimeout(() => setAct('INTRO'), 400);
-        }
-      });
-
+    const boot = async () => {
       audioManager.init();
-    });
+
+      const [textures] = await Promise.all([
+        preloadStage1Textures(),
+        stage.init((w, h) => applyAllLayouts(w, h)),
+      ]);
+      if (disposed) return;
+
+      const sky = new SkyLayer(textures, stage.atmosphere, stage.app.renderer);
+      const ocean = new OceanLayer();
+      const sand = new SandLayer(textures, {
+        onOctopusTap: () => {
+          const st = storyStore.getState();
+          if (!st.unlocked && st.currentState === 'LOCKED_GATE') {
+            setPasswordModalOpen(true);
+          }
+        },
+      });
+      const effects = new AtmosphereEffectsLayer();
+
+      skyRef.current = sky;
+      oceanRef.current = ocean;
+      sandRef.current = sand;
+      effectsRef.current = effects;
+
+      stage.worldLayer.addChild(sky);
+      stage.worldLayer.addChild(ocean);
+      stage.worldLayer.addChild(sand);
+      stage.worldLayer.addChild(effects);
+      stage.registerParallaxLayers(sky, ocean, sand, effects);
+
+      const stageSize = stage.getStageSize();
+      applyAllLayouts(stageSize.width, stageSize.height);
+      stage.app.render();
+      setReady(true);
+
+      const search = window.location.search;
+      const previewToken = new URLSearchParams(search).get('preview');
+      const previewPresent = isPreviewQueryPresent(search);
+      const status = await fetchAuthoritativeStatus('/api', previewToken);
+      if (disposed) return;
+
+      if (status.unlocked) {
+        await activateUnlockedShell(status, previewPresent, () => disposed);
+      } else {
+        setServerNow(status.serverNow);
+        if (status.content) {
+          setUnlockedContent(status.content);
+        }
+      }
+    };
+
+    void boot();
 
     return () => {
-      stageRef.current?.destroy();
+      disposed = true;
+      audioManager.stopAll();
+      stage.destroy();
     };
-  }, []);
+  }, [activateUnlockedShell, setUnlockedContent]);
 
-  // --- Act-based scene changes ---
-  useEffect(() => {
-    if (currentAct === 'INTRO' && skyRef.current && stageRef.current) {
-      const w = window.innerWidth;
-      skyRef.current.animatePlane('Happy Birthday, Kristine! 🎉', w).then(() => {
-        setTimeout(() => setAct('DIGGING'), 500);
-      });
-    }
+  const handlePasswordSubmit = useCallback(
+    async (password: string): Promise<boolean> => {
+      const status = await unlockWithPassword(password, '/api');
+      if (!status.unlocked) {
+        return false;
+      }
+      audioManager.unlockAudioContext();
+      audioManager.playSfx('chime');
+      await activateUnlockedShell(status, true);
+      return true;
+    },
+    [activateUnlockedShell],
+  );
 
-    if (currentAct === 'DIGGING' && stageRef.current && !digRef.current) {
-      const dig = new DigScene();
-      dig.resize(window.innerWidth, window.innerHeight);
-      dig.onTreasureFound = (treasure: Treasure) => {
-        unearthItem(treasure.id);
-      };
-      stageRef.current.stage.addChild(dig);
-      digRef.current = dig;
-    }
-  }, [currentAct]);
-
-  // All 4 items dug → auto-advance to BOTTLE
-  useEffect(() => {
-    if (currentAct === 'DIGGING' && dugItems.length >= 4) {
-      setTimeout(() => setAct('BOTTLE'), 1200);
-    }
-  }, [dugItems, currentAct]);
-
-  // First user tap → unlock Web Audio
-  const handleFirstTap = () => {
+  const handleMuteToggle = () => {
     audioManager.unlockAudioContext();
     unlockAudio();
-    if (currentAct === 'INTRO') {
-      audioManager.fadeIn('waves', 2000);
-      audioManager.fadeIn('musicBox', 3000);
-    }
-  };
-
-  const getActiveTreasureData = (): Treasure | null => {
-    if (!activeTreasureCard) return null;
-    const { TREASURES } = require('./engine/scenes/DigScene');
-    return TREASURES?.find?.((t: Treasure) => t.id === activeTreasureCard) ?? null;
+    const nextMuted = !muted;
+    audioManager.setMuted(nextMuted);
+    toggleMute();
   };
 
   return (
-    <div id="app" onClick={handleFirstTap}>
-      {/* PixiJS canvas — single WebGL2 context, full-bleed */}
-      <canvas id="beach-canvas" ref={canvasRef} />
+    <div id="app">
+      <div
+        class="stage-frame"
+        ref={frameRef}
+        onPointerDown={(e) => {
+          const rect = frameRef.current?.getBoundingClientRect();
+          if (rect) {
+            sandRef.current?.setGazeTarget(e.clientX - rect.left, e.clientY - rect.top);
+          } else {
+            sandRef.current?.setGazeTarget(e.clientX, e.clientY);
+          }
+        }}
+      >
+        <canvas id="beach-canvas" ref={canvasRef} />
 
-      {/* HUD Overlay */}
-      <div id="ui-overlay">
+        <div id="ui-overlay">
+          {ready && (
+            <div class="hud-top-left">
+              {unlocked && (
+                <button
+                  type="button"
+                  class="mute-chip"
+                  aria-label={muted ? 'Unmute sound' : 'Mute sound'}
+                  onClick={handleMuteToggle}
+                >
+                  {muted ? '🔇' : '🎵'}
+                </button>
+              )}
+              <button
+                type="button"
+                class="fullscreen-chip"
+                aria-label={isFullscreen ? 'Exit fullscreen' : 'Toggle fullscreen'}
+                title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+                onClick={() => {
+                  void toggleBrowserFullscreen();
+                }}
+              >
+                {isFullscreen ? '🗗' : '⛶'}
+              </button>
+            </div>
+          )}
 
-        {/* Act 0: Countdown sign */}
-        {currentAct === 'LOCKED' && (
-          <div style={{
-            position: 'absolute',
-            bottom: '28%',
-            left: '50%',
-            transform: 'translateX(-50%)',
-          }}>
+          {ready && !unlocked && currentState === 'LOCKED_GATE' && (
             <CountdownSign serverNowMs={serverNow} />
-          </div>
-        )}
+          )}
 
-        {/* Act 1: Wake prompt */}
-        {currentAct === 'INTRO' && (
-          <div
-            style={{
-              position: 'absolute',
-              bottom: '25%',
-              left: '50%',
-              transform: 'translateX(-50%)',
-              textAlign: 'center',
-              animation: 'float-up 0.6s ease forwards',
-              pointerEvents: 'auto',
-            }}
-          >
-            <div style={{
-              background: 'rgba(255,251,245,0.9)',
-              border: '3px solid #4A2C1D',
-              borderRadius: '50px',
-              padding: '0.75rem 2rem',
-              fontFamily: 'Fredoka, sans-serif',
-              fontSize: '1.1rem',
-              fontWeight: '700',
-              color: '#4A2C1D',
-              boxShadow: '4px 4px 0 #4A2C1D',
-            }}>
-              🌊 Tap to Wake the Beach
-            </div>
-          </div>
-        )}
+          {ready && !unlocked && passwordModalOpen && PasswordComp && (
+            <PasswordComp
+              onClose={() => setPasswordModalOpen(false)}
+              onSubmitPassword={handlePasswordSubmit}
+            />
+          )}
 
-        {/* Act 2: Treasure card reveal */}
-        {currentAct === 'DIGGING' && activeTreasureCard && (() => {
-          // Inline treasure data lookup
-          const treasures: Treasure[] = [
-            { id: 'starfish', emoji: '⭐', label: 'Golden Starfish', message: 'Your warmth lights up every room you walk into, Kristine.' },
-            { id: 'octopus', emoji: '🐙', label: 'Little Red Octopus', message: 'You have so many amazing talents — and I love watching every one of them.' },
-            { id: 'sailboat', emoji: '⛵', label: 'Tiny Sailboat', message: 'You make every adventure worth having. Here\'s to many more.' },
-            { id: 'seashell', emoji: '🐚', label: 'Pink Seashell', message: 'Like the sound of the ocean in this shell — you\'re always with me.' },
-          ];
-          const t = treasures.find(x => x.id === activeTreasureCard);
-          return t ? <TreasureCard treasure={t} onDismiss={dismissTreasureCard} /> : null;
-        })()}
-
-        {/* Act 2: Progress hint */}
-        {currentAct === 'DIGGING' && !activeTreasureCard && (
-          <div style={{
-            position: 'absolute',
-            top: 'calc(env(safe-area-inset-top, 0px) + 1rem)',
-            left: 0, right: 0,
-            textAlign: 'center',
-            fontFamily: 'Fredoka, sans-serif',
-            fontSize: '0.9rem',
-            color: '#4A2C1D',
-            background: 'rgba(255,251,245,0.8)',
-            padding: '0.4rem 0',
-          }}>
-            🏖️ Rub the glowing mounds to find buried treasures! ({dugItems.length}/4)
-          </div>
-        )}
-
-        {/* Act 3: Polaroid bottle memories */}
-        {currentAct === 'BOTTLE' && !showSandbox && (
-          <PolaroidStack
-            cards={POLAROIDS}
-            onAllSeen={() => setTimeout(() => setAct('CAKE'), 800)}
-          />
-        )}
-
-        {/* Act 4: Cake wish */}
-        {currentAct === 'CAKE' && !showSandbox && (
-          <div style={{
-            position: 'absolute',
-            bottom: '15%',
-            left: 0, right: 0,
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            gap: '1rem',
-            pointerEvents: 'auto',
-          }}>
-            <div style={{
-              background: 'rgba(255,251,245,0.9)',
-              border: '3px solid #4A2C1D',
-              borderRadius: '20px',
-              padding: '1rem 1.5rem',
-              textAlign: 'center',
-              maxWidth: '300px',
-              fontFamily: 'Fredoka, sans-serif',
-              color: '#4A2C1D',
-              boxShadow: '4px 4px 0 #4A2C1D',
-            }}>
-              <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>🎂</div>
-              <div style={{ fontWeight: '700', fontSize: '1.1rem', marginBottom: '0.5rem' }}>Make a Wish!</div>
-              <div style={{ fontSize: '0.85rem', opacity: 0.8 }}>
-                Hold the button to blow out the candles ✨
-              </div>
-            </div>
-            <button
-              class="keepsake-btn interactive"
-              style={{ background: '#FACC15' }}
-              onPointerDown={() => {
-                const holdStart = Date.now();
-                const checkHold = setInterval(() => {
-                  if (Date.now() - holdStart >= 1500) {
-                    clearInterval(checkHold);
-                    blowOutCandles();
-                    audioManager.play('sparkle');
-                  }
-                }, 100);
-                window.addEventListener('pointerup', () => clearInterval(checkHold), { once: true });
-              }}
-            >
-              🌬️ Hold to Blow Out Candles
-            </button>
-          </div>
-        )}
-
-        {/* Act 5: Letter */}
-        {currentAct === 'LETTER' && !showSandbox && (
-          <BirthdayLetter onComplete={() => setAct('SANDBOX')} />
-        )}
-
-        {/* Act 6: Keepsake + Sandbox */}
-        {currentAct === 'SANDBOX' && !showSandbox && (
-          <KeepsakeExporter
-            stageCanvas={canvasRef.current}
-            onToggleSandbox={() => setShowSandbox(true)}
-          />
-        )}
-
-        {/* Sandbox mode: minimal UI */}
-        {showSandbox && (
-          <div class="sandbox-controls">
-            <button class="sandbox-btn interactive" onClick={() => setShowSandbox(false)}>
-              ← Back
-            </button>
-            <button class="sandbox-btn interactive" onClick={() => audioManager.play('musicBox')}>
-              🎵 Music
-            </button>
-          </div>
-        )}
+          {ready &&
+            unlocked &&
+            ExperienceComp &&
+            stageRef.current &&
+            skyRef.current && (
+              <ExperienceComp
+                stage={stageRef.current}
+                skyLayer={skyRef.current}
+                sandLayer={sandRef.current ?? undefined}
+                getLayout={getLayout}
+              />
+            )}
+        </div>
       </div>
+
+      <LandscapeGuardOverlay
+        visible={isPortraitViewport && !promptDismissed}
+        onDismiss={() => setPromptDismissed(true)}
+      />
     </div>
   );
 }
 
-render(<App />, document.getElementById('app')!);
+const mountEl = document.getElementById('app');
+if (mountEl) {
+  render(<App />, mountEl);
+}

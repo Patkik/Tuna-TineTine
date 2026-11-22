@@ -1,65 +1,118 @@
-/* ============================================================
-   Beach Birthday Shell — Mobile-first, 100dvh, Zero Jank
-   ============================================================ */
+/* ==========================================================================
+   Beach Birthday Shell — Unified Cel-Shaded Beach Storybook & Android Guardrails
+   ========================================================================== */
 
-/* Design Tokens */
 :root {
-  /* Palette — Faithful to Rilakkuma Beach Reference Art */
   --color-sky-top: #0EA5E9;
+  --color-sky-mid: #38BDF8;
   --color-sky-bottom: #67E8F9;
   --color-ocean: #7DD3FC;
   --color-sand: #F3E5AB;
   --color-sand-shadow: #E6D395;
   --color-outline: #4A2C1D;
+  --color-ink-warm: #5B3A29;
+  --color-coral: #E87A45;
   --color-pink: #F472B6;
   --color-teal: #06B6D4;
   --color-yellow: #FACC15;
-  --color-red: #EF4444;
-  --color-cream: #FEFCE8;
+  --color-cream: #FFFDF7;
+  --color-cream-warm: #F5EAD8;
+  --color-wood: #E5BA82;
+  --color-wood-post: #B87B48;
 
-  /* Typography */
   --font-display: 'Fredoka', 'M PLUS Rounded 1c', system-ui, sans-serif;
   --font-body: 'M PLUS Rounded 1c', system-ui, sans-serif;
 
-  /* Spacing — Safe areas for Android punch-hole + gesture nav bar */
+  --target-size: 24px;
+
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --safe-left: env(safe-area-inset-left, 0px);
   --safe-right: env(safe-area-inset-right, 0px);
 }
 
-/* Global Reset */
-*, *::before, *::after {
+@media (pointer: coarse) {
+  :root {
+    --target-size: 44px;
+  }
+}
+
+*,
+*::before,
+*::after {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
 }
 
-/* Critical: Prevent Android Chrome address bar bounce, layout jumps, gesture conflicts */
-html, body {
+html,
+body {
   width: 100%;
   height: 100%;
   overflow: hidden;
   overscroll-behavior: none;
+  background: var(--color-sky-top);
   -webkit-tap-highlight-color: transparent;
   -webkit-touch-callout: none;
   user-select: none;
+  overflow-wrap: break-word;
 }
 
-/* Root App Shell — Locked to 100dvh (dynamic viewport for Android toolbar collapse) */
+h1,
+h2,
+h3 {
+  text-wrap: balance;
+}
+
+p {
+  text-wrap: pretty;
+}
+
+:where(button, [role='button']) {
+  min-block-size: var(--target-size);
+  min-inline-size: var(--target-size);
+}
+
+/* Root App Shell — True full-screen edge-to-edge widescreen viewport lock */
 #app {
   position: fixed;
   inset: 0;
-  width: 100vw;
+  width: 100dvw;
   height: 100dvh;
   overflow: hidden;
   overscroll-behavior: none;
   touch-action: none;
-  background: var(--color-sky-top);
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: stretch;
+  padding: 0;
+  background: linear-gradient(
+    180deg,
+    #0ea5e9 0%,
+    #38bdf8 44%,
+    #7dd3fc 64%,
+    #f3e5ab 100%
+  );
   font-family: var(--font-display);
 }
 
-/* PixiJS Canvas — Full bleed, single WebGL2 context */
+.stage-frame {
+  position: relative;
+  flex: 1 1 auto;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  container: beach-stage / size;
+  background: linear-gradient(
+    180deg,
+    var(--color-sky-top) 0%,
+    var(--color-sky-bottom) 48%,
+    var(--color-ocean) 56%,
+    var(--color-sand) 100%
+  );
+}
+
 #beach-canvas {
   position: absolute;
   inset: 0;
@@ -70,382 +123,1299 @@ html, body {
   outline: none;
 }
 
-/* HUD Overlay Layer — On top of canvas, pointer-events off by default */
 #ui-overlay {
   position: absolute;
   inset: 0;
   pointer-events: none;
-  /* Safe area padding for Android punched-hole cameras and gesture navigation bar */
-  padding-top: var(--safe-top);
-  padding-bottom: var(--safe-bottom);
-  padding-left: var(--safe-left);
-  padding-right: var(--safe-right);
+  padding:
+    max(0.45rem, var(--safe-top))
+    max(0.55rem, var(--safe-right))
+    max(0.45rem, var(--safe-bottom))
+    max(0.55rem, var(--safe-left));
 }
 
-/* Re-enable pointer events on interactive UI elements explicitly */
 #ui-overlay .interactive {
   pointer-events: auto;
 }
 
-/* Loading Screen */
-.loading-screen {
+.thumb-zone-anchor {
   position: absolute;
-  inset: 0;
+  left: 50%;
+  bottom: max(clamp(0.45rem, 3cqh, 1.05rem), var(--safe-bottom));
+  transform: translateX(-50%);
+  width: min(88%, 390px);
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  background: linear-gradient(180deg, var(--color-sky-top) 0%, var(--color-sky-bottom) 55%, var(--color-ocean) 70%, var(--color-sand) 100%);
-  gap: 1rem;
-  z-index: 100;
+  gap: 0.5rem;
+  z-index: 25;
 }
 
-.loading-bear {
-  font-size: 3rem;
-  animation: bobble 1.4s ease-in-out infinite;
-}
-
-.loading-text {
-  font-family: var(--font-display);
-  font-size: 1.1rem;
-  font-weight: 600;
+.top-banner {
+  position: absolute;
+  top: max(clamp(0.4rem, 2.2cqh, 0.8rem), var(--safe-top));
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(64%, 380px);
+  max-width: calc(100% - 8.5rem);
+  background: rgba(255, 253, 247, 0.94);
+  border: 3px solid var(--color-outline);
+  border-radius: 999px;
+  padding: 0.38rem 0.95rem;
+  text-align: center;
   color: var(--color-outline);
-  letter-spacing: 0.05em;
+  font-family: var(--font-display);
+  font-size: clamp(0.74rem, 0.65rem + 0.55cqw, 0.94rem);
+  font-weight: 700;
+  box-shadow: 0 4px 0 var(--color-outline);
+  z-index: 25;
 }
 
-/* Countdown Sign */
+/* Audio Mute + Fullscreen Chips — Top-Left inside safe-area insets (clear of top-right UI) */
+.hud-top-left {
+  position: absolute;
+  top: max(clamp(0.45rem, 2.2cqh, 0.85rem), var(--safe-top));
+  left: max(clamp(0.5rem, 1.5cqw, 0.95rem), var(--safe-left));
+  z-index: 36;
+  display: flex;
+  align-items: center;
+  gap: 0.42rem;
+  pointer-events: none;
+}
+
+.mute-chip,
+.fullscreen-chip {
+  background: rgba(255, 253, 247, 0.94);
+  border: 3px solid var(--color-outline);
+  border-radius: 999px;
+  padding: 0.36rem 0.72rem;
+  color: var(--color-outline);
+  font-family: var(--font-display);
+  font-size: clamp(0.75rem, 0.68rem + 0.35cqw, 0.92rem);
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 2.5px 2.5px 0 var(--color-outline);
+  pointer-events: auto;
+  transition: transform 140ms ease;
+}
+
+.mute-chip:active,
+.fullscreen-chip:active {
+  transform: translateY(1.5px) scale(0.96);
+}
+
+/* ==========================================================================
+   Act 0: Wooden Beach Countdown Sign
+   ========================================================================== */
+.countdown-wrapper {
+  position: absolute;
+  left: 50%;
+  bottom: max(clamp(0.35rem, 2.5cqh, 0.85rem), var(--safe-bottom));
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  z-index: 20;
+}
+
 .countdown-sign {
+  contain: layout style paint;
   position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 0.25rem;
-  background: #DEB887;
-  border: 4px solid var(--color-outline);
-  border-radius: 8px 8px 4px 4px;
-  padding: 1rem 1.5rem;
-  box-shadow: 3px 3px 0 var(--color-outline);
-  pointer-events: none;
+  background: var(--color-wood);
+  border: 3.5px solid var(--color-outline);
+  border-radius: 14px;
+  padding: 0.52rem 0.88rem;
+  box-shadow: 4px 4px 0 var(--color-outline);
+  pointer-events: auto;
 }
 
-.countdown-sign::after {
-  content: '';
-  display: block;
-  width: 8px;
-  height: 40px;
-  background: #A0522D;
-  border: 2px solid var(--color-outline);
-  margin-top: 0;
+.countdown-post {
+  width: 12px;
+  height: 12px;
+  background: var(--color-wood-post);
+  border: 3px solid var(--color-outline);
+  border-top: none;
+  border-radius: 0 0 6px 6px;
 }
 
 .countdown-label {
   font-family: var(--font-display);
-  font-size: 0.65rem;
+  font-size: 0.72rem;
   font-weight: 700;
   color: var(--color-outline);
+  letter-spacing: 0.05em;
   text-transform: uppercase;
-  letter-spacing: 0.1em;
-  margin-bottom: 0.25rem;
 }
 
 .countdown-digits {
   display: flex;
   align-items: center;
   gap: 0.25rem;
-  font-family: var(--font-display);
-  font-size: 1.5rem;
-  font-weight: 700;
-  color: var(--color-outline);
 }
 
 .countdown-unit {
   display: flex;
   flex-direction: column;
   align-items: center;
+  gap: 0.15rem;
 }
 
 .countdown-num {
   background: var(--color-cream);
-  border: 2px solid var(--color-outline);
-  border-radius: 4px;
-  padding: 0.1rem 0.4rem;
-  min-width: 2.2rem;
+  border: 2.5px solid var(--color-outline);
+  border-radius: 8px;
+  padding: 0.15rem 0.42rem;
+  min-width: 2.35rem;
   text-align: center;
-  font-size: 1.3rem;
-  line-height: 1.4;
+  font-family: var(--font-display);
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--color-outline);
+  line-height: 1.2;
 }
 
 .countdown-sep {
-  font-size: 1.3rem;
-  margin-bottom: 0.8rem;
+  font-size: 1.1rem;
+  font-weight: 700;
   color: var(--color-outline);
+  margin-bottom: 0.9rem;
 }
 
 .countdown-unit-label {
-  font-size: 0.5rem;
+  font-size: 0.56rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--color-outline);
+}
+
+.teaser-tip {
+  margin-top: 0.3rem;
+  background: rgba(255, 253, 247, 0.9);
+  border: 2px solid var(--color-outline);
+  border-radius: 999px;
+  padding: 0.22rem 0.8rem;
+  font-size: 0.74rem;
   font-weight: 600;
-  letter-spacing: 0.08em;
-  color: var(--color-outline);
-  opacity: 0.75;
-}
-
-/* Treasure Card Modal */
-.treasure-card {
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
-  background: var(--color-cream);
-  border: 4px solid var(--color-outline);
-  border-radius: 20px;
-  padding: 1.5rem 2rem;
-  max-width: 320px;
-  width: 90vw;
-  box-shadow: 5px 5px 0 var(--color-outline);
-  pointer-events: auto;
-  z-index: 50;
-  animation: popIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
-}
-
-.treasure-card-emoji {
-  font-size: 3rem;
-  display: block;
-  text-align: center;
-  margin-bottom: 0.75rem;
-}
-
-.treasure-card-text {
-  font-family: var(--font-body);
-  font-size: 1rem;
   color: var(--color-outline);
   text-align: center;
-  line-height: 1.6;
 }
 
-.treasure-card-close {
-  display: block;
-  margin: 1rem auto 0;
+/* ==========================================================================
+   Buttons & Pills
+   ========================================================================== */
+.beach-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
   background: var(--color-pink);
   border: 3px solid var(--color-outline);
-  border-radius: 50px;
-  color: white;
+  border-radius: 999px;
+  color: #ffffff;
   font-family: var(--font-display);
-  font-size: 0.9rem;
-  font-weight: 700;
-  padding: 0.5rem 1.5rem;
-  cursor: pointer;
-  box-shadow: 3px 3px 0 var(--color-outline);
-  pointer-events: auto;
-  transition: transform 0.1s;
-  -webkit-tap-highlight-color: transparent;
-}
-
-.treasure-card-close:active {
-  transform: translate(2px, 2px);
-  box-shadow: 1px 1px 0 var(--color-outline);
-}
-
-/* Polaroid Stack */
-.polaroid-stack {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  pointer-events: auto;
-  z-index: 40;
-}
-
-.polaroid {
-  position: absolute;
-  background: white;
-  border: 3px solid var(--color-outline);
-  border-radius: 4px;
-  padding: 0.75rem 0.75rem 2.5rem;
-  box-shadow: 4px 4px 0 var(--color-outline);
-  width: min(280px, 80vw);
-  transform-origin: center center;
-  cursor: grab;
-  user-select: none;
-  touch-action: none;
-  transition: transform 0.08s ease;
-}
-
-.polaroid-img {
-  width: 100%;
-  aspect-ratio: 1;
-  background: var(--color-sand);
-  border-radius: 2px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 3rem;
-  overflow: hidden;
-}
-
-.polaroid-caption {
-  font-family: var(--font-body);
-  font-size: 0.75rem;
-  color: var(--color-outline);
-  text-align: center;
-  margin-top: 0.5rem;
-  padding: 0 0.25rem;
-}
-
-/* Birthday Letter */
-.birthday-letter {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  pointer-events: auto;
-  z-index: 60;
-  padding: 1rem;
-  padding-top: calc(var(--safe-top) + 1rem);
-  padding-bottom: calc(var(--safe-bottom) + 1rem);
-}
-
-.letter-paper {
-  background: #FFFEF0;
-  background-image: repeating-linear-gradient(transparent, transparent 27px, #E6D395 27px, #E6D395 28px);
-  border: 3px solid var(--color-outline);
-  border-radius: 12px;
-  padding: 2rem 1.5rem;
-  max-width: 380px;
-  width: 100%;
-  max-height: 70dvh;
-  overflow-y: auto;
-  box-shadow: 6px 6px 0 var(--color-outline);
-  animation: unfold 0.6s cubic-bezier(0.34, 1.2, 0.64, 1) forwards;
-}
-
-.letter-greeting {
-  font-family: var(--font-display);
-  font-size: 1.3rem;
-  font-weight: 700;
-  color: var(--color-pink);
-  margin-bottom: 1rem;
-  text-shadow: 1px 1px 0 var(--color-outline);
-}
-
-.letter-body {
-  font-family: var(--font-body);
   font-size: 0.95rem;
-  line-height: 2rem;
-  color: var(--color-outline);
-  white-space: pre-line;
-}
-
-.letter-sign {
-  font-family: var(--font-display);
-  font-size: 1rem;
-  font-weight: 600;
-  color: var(--color-teal);
-  margin-top: 1.5rem;
-  text-align: right;
-}
-
-/* Keepsake Button */
-.keepsake-btn {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  background: var(--color-yellow);
-  border: 3px solid var(--color-outline);
-  border-radius: 50px;
-  color: var(--color-outline);
-  font-family: var(--font-display);
-  font-size: 1rem;
   font-weight: 700;
-  padding: 0.75rem 1.5rem;
+  padding: 0.62rem 1.3rem;
   cursor: pointer;
   box-shadow: 4px 4px 0 var(--color-outline);
   pointer-events: auto;
-  transition: transform 0.1s;
-  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
 }
 
-.keepsake-btn:active {
+.beach-btn:active {
   transform: translate(2px, 2px);
   box-shadow: 2px 2px 0 var(--color-outline);
 }
 
-/* Sandbox Controls */
-.sandbox-controls {
+.beach-btn--yellow {
+  background: var(--color-yellow);
+  color: var(--color-outline);
+}
+
+.beach-btn--cream {
+  background: var(--color-cream);
+  color: var(--color-outline);
+}
+
+/* ==========================================================================
+   Native Modal Dialogs (<dialog>) + Top-Layer Entry/Exit Transitions
+   ========================================================================== */
+dialog.beach-dialog {
+  margin: auto;
+  border: 4px solid var(--color-outline);
+  border-radius: 22px;
+  background: var(--color-cream);
+  color: var(--color-outline);
+  padding: 1.35rem;
+  max-width: min(92vw, 390px);
+  width: 92vw;
+  max-height: min(84dvh, 620px);
+  overflow-y: auto;
+  box-shadow: 6px 6px 0 var(--color-outline);
+  opacity: 0;
+  transition-property: opacity, transform, display, overlay;
+  transition-duration: 0.18s;
+  transition-timing-function: ease-out;
+  transition-behavior: allow-discrete;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  dialog.beach-dialog {
+    transform: scale(0.9);
+  }
+}
+
+dialog.beach-dialog:modal {
+  overscroll-behavior: contain;
+}
+
+dialog.beach-dialog::backdrop {
+  background-color: rgba(74, 44, 29, 0);
+  overflow: hidden;
+  overscroll-behavior: contain;
+  transition-property: background-color, display, overlay;
+  transition-duration: 0.28s;
+  transition-timing-function: ease-out;
+  transition-behavior: allow-discrete;
+}
+
+:is(dialog.beach-dialog[open]):where(:not([data-closing])) {
+  display: block;
+  opacity: 1;
+}
+
+@starting-style {
+  :is(dialog.beach-dialog[open]):where(:not([data-closing])) {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  :is(dialog.beach-dialog[open]):where(:not([data-closing])) {
+    transform: scale(1);
+  }
+
+  @starting-style {
+    :is(dialog.beach-dialog[open]):where(:not([data-closing])) {
+      transform: scale(0.9);
+    }
+  }
+}
+
+:is(dialog.beach-dialog[open]):where(:not([data-closing]))::backdrop {
+  background-color: rgba(74, 44, 29, 0.4);
+}
+
+@starting-style {
+  :is(dialog.beach-dialog[open]):where(:not([data-closing]))::backdrop {
+    background-color: rgba(74, 44, 29, 0);
+  }
+}
+
+/* Beat 4 Wide Landscape Parchment Scroll Modal */
+dialog.beach-dialog.scroll-dialog {
+  max-width: min(86vw, 620px);
+  width: min(86vw, 620px);
+  background: var(--color-cream-warm);
+  border-radius: 18px;
+  padding: 1.25rem 2.2rem;
+  position: relative;
+  overflow: visible;
+}
+
+.scroll-dowel {
   position: absolute;
-  bottom: calc(var(--safe-bottom) + 1rem);
-  left: 50%;
-  transform: translateX(-50%);
+  top: 6%;
+  bottom: 6%;
+  width: 16px;
+  background: var(--color-wood);
+  border: 3.5px solid var(--color-outline);
+  border-radius: 999px;
+}
+
+.scroll-dowel--left {
+  left: -10px;
+}
+
+.scroll-dowel--right {
+  right: -10px;
+}
+
+.scroll-inner {
   display: flex;
-  gap: 0.75rem;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.scroll-header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+}
+
+.scroll-heading {
+  font-family: var(--font-display);
+  font-size: clamp(1rem, 0.9rem + 0.6vw, 1.3rem);
+  font-weight: 700;
+  color: var(--color-outline);
+}
+
+.scroll-copy {
+  background: var(--color-cream);
+  border: 2.5px solid var(--color-sand-shadow);
+  border-radius: 12px;
+  padding: 0.75rem 1rem;
+  max-height: 48dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.scroll-paragraph {
+  font-family: var(--font-body);
+  font-size: 0.88rem;
+  line-height: 1.55;
+  color: var(--color-outline);
+  margin-bottom: 0.55rem;
+}
+
+.scroll-footer {
+  font-family: var(--font-display);
+  font-size: 0.86rem;
+  font-weight: 700;
+  color: var(--color-coral);
+  text-align: center;
+}
+
+.scroll-actions {
+  display: flex;
+  justify-content: center;
+}
+
+/* ==========================================================================
+   Beats 2 & 3: Warm Bokeh Scrim, Stacked Scratch Tickets & Blow-Away Fan
+   ========================================================================== */
+.scratch-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(
+    ellipse at center,
+    rgba(255, 253, 247, 0.28) 0%,
+    rgba(125, 211, 252, 0.22) 100%
+  );
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  transition: opacity 420ms ease, backdrop-filter 420ms ease;
+  padding:
+    max(0.6rem, var(--safe-top))
+    max(0.8rem, var(--safe-right))
+    max(0.6rem, var(--safe-bottom))
+    max(0.8rem, var(--safe-left));
+}
+
+.scratch-scrim.is-catching-intro {
+  background: radial-gradient(
+    ellipse at center,
+    rgba(255, 253, 247, 0.14) 0%,
+    rgba(125, 211, 252, 0.1) 100%
+  );
+  backdrop-filter: blur(1.5px);
+  -webkit-backdrop-filter: blur(1.5px);
+}
+
+.scratch-scrim.is-blowing-away {
+  opacity: 0;
+  backdrop-filter: blur(0px);
+  -webkit-backdrop-filter: blur(0px);
+}
+
+.scratch-stage {
+  contain: layout style paint;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  width: 100%;
+  height: 100%;
+}
+
+.scratch-header-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.65rem;
+  background: var(--color-cream);
+  border: 3px solid var(--color-outline);
+  border-radius: 999px;
+  padding: 0.28rem 0.9rem;
+  font-size: clamp(0.74rem, 0.68rem + 0.45cqw, 0.92rem);
+  font-weight: 700;
+  color: var(--color-outline);
+  box-shadow: 3px 3px 0 var(--color-outline);
+  transition: opacity 280ms ease, transform 280ms ease;
+}
+
+@keyframes catch-float {
+  0%,
+  100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
+}
+
+.scratch-catch-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: linear-gradient(180deg, #fef08a 0%, #facc15 100%);
+  border: 3px solid var(--color-outline);
+  border-radius: 999px;
+  padding: 0.42rem 1.05rem;
+  font-family: var(--font-display);
+  font-size: clamp(0.78rem, 0.72rem + 0.48cqw, 0.96rem);
+  font-weight: 700;
+  color: var(--color-outline);
+  box-shadow: 0 4px 0 var(--color-outline);
+  cursor: pointer;
+  opacity: 0;
+  transform: translateY(10px) scale(0.95);
+  transition: opacity 380ms ease, transform 380ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  pointer-events: none;
+}
+
+.scratch-catch-pill.is-visible {
+  opacity: 1;
+  transform: translateY(0) scale(1);
   pointer-events: auto;
+  animation: catch-float 2.1s ease-in-out infinite;
+}
+
+.scratch-deck-wrap {
+  position: relative;
+  width: min(350px, 56cqw);
+  height: min(230px, 66cqh);
+  perspective: 900px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.scratch-deck-wrap.is-drifting {
+  cursor: pointer;
+}
+
+.scratch-ticket {
+  position: absolute;
+  inset: 0;
+  background: var(--color-cream);
+  border: 4px solid var(--color-outline);
+  border-radius: 18px;
+  padding: 0.48rem;
+  box-shadow: 5px 5px 0 var(--color-outline);
+  touch-action: none;
+  will-change: transform, opacity;
+  transform-origin: center center;
+}
+
+.scratch-ticket.is-top {
+  cursor: grab;
+}
+
+.scratch-ticket.is-exiting {
+  pointer-events: none;
+}
+
+.scratch-ticket-inner {
+  width: 100%;
+  height: 100%;
+  border: 3px dashed var(--color-coral);
+  border-radius: 12px;
+  padding: 0.5rem 0.65rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  background: var(--color-cream-warm);
+}
+
+.scratch-ticket-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.35rem;
+}
+
+.scratch-badge {
+  background: var(--color-coral);
+  color: var(--color-cream);
+  border: 2px solid var(--color-outline);
+  border-radius: 999px;
+  padding: 0.08rem 0.46rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.scratch-title {
+  font-size: clamp(0.75rem, 0.66rem + 0.4cqw, 0.92rem);
+  font-weight: 700;
+  color: var(--color-outline);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.scratch-window {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  border: 3px solid var(--color-outline);
+  border-radius: 10px;
+  background: var(--color-cream);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.45rem;
+}
+
+.scratch-revealed-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  text-align: center;
+}
+
+.scratch-message {
+  font-family: var(--font-body);
+  font-size: clamp(0.72rem, 0.65rem + 0.32cqw, 0.84rem);
+  font-weight: 700;
+  line-height: 1.34;
+  color: var(--color-outline);
+}
+
+.scratch-foil-wrap {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.scratch-foil-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+  touch-action: none;
+  cursor: crosshair;
+}
+
+@keyframes holo-sweep {
+  0% {
+    transform: translateX(-140%) skewX(-22deg);
+  }
+  45%,
+  100% {
+    transform: translateX(240%) skewX(-22deg);
+  }
+}
+
+.scratch-holo-sweep {
+  position: absolute;
+  inset: 0;
+  width: 45%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.42),
+    rgba(250, 204, 21, 0.22),
+    transparent
+  );
+  pointer-events: none;
+  animation: holo-sweep 2.8s ease-in-out infinite;
+}
+
+.scratch-swipe-cue {
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  background: var(--color-cream);
+  border: 2px solid var(--color-outline);
+  border-radius: 999px;
+  padding: 0.14rem 0.65rem;
+  font-family: var(--font-display);
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--color-outline);
+  cursor: pointer;
+}
+
+.scratch-flakes-overlay {
+  position: absolute;
+  inset: -45px -60px;
+  width: calc(100% + 120px);
+  height: calc(100% + 90px);
+  pointer-events: none;
   z-index: 30;
 }
 
-.sandbox-btn {
-  background: rgba(255, 255, 255, 0.85);
+/* Beat 3: Fan All 4 Cards Side-by-Side */
+.scratch-fan-stage {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(0.55rem, 2.2cqh, 1rem);
+  padding: 0 0.5rem;
+}
+
+.scratch-fan-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: clamp(0.4rem, 1.4cqw, 0.85rem);
+  width: min(96%, 820px);
+}
+
+.scratch-fan-card {
+  background: var(--color-cream);
+  border: 3.5px solid var(--color-outline);
+  border-radius: 14px;
+  padding: 0.34rem;
+  box-shadow: 4px 4px 0 var(--color-outline);
+  min-height: min(175px, 46cqh);
+  display: flex;
+}
+
+.scratch-ticket-inner.is-fan {
+  padding: 0.4rem;
+}
+
+.scratch-fan-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  text-align: center;
+}
+
+.scratch-fan-message {
+  font-family: var(--font-body);
+  font-size: clamp(0.62rem, 0.56rem + 0.26cqw, 0.75rem);
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--color-outline);
+}
+
+/* ==========================================================================
+   Beats 5b & 6: Bear Speech Bubbles
+   ========================================================================== */
+.bear-bubble-anchor {
+  position: absolute;
+  z-index: 30;
+  max-width: min(260px, 38cqw);
+}
+
+.bear-bubble-anchor--scope {
+  top: 22%;
+  right: max(clamp(0.75rem, 6cqw, 4rem), var(--safe-right));
+}
+
+.bear-bubble-anchor--beach {
+  top: 32%;
+  right: max(clamp(1.2rem, 10cqw, 6rem), var(--safe-right));
+}
+
+.bear-speech-bubble {
+  background: var(--color-cream);
+  border: 3.5px solid var(--color-outline);
+  border-radius: 22px;
+  padding: 0.7rem 1rem;
+  font-family: var(--font-display);
+  font-size: clamp(0.78rem, 0.7rem + 0.45cqw, 0.96rem);
+  font-weight: 700;
+  line-height: 1.35;
+  color: var(--color-outline);
+  box-shadow: 4px 4px 0 var(--color-outline);
+  text-align: center;
+  cursor: pointer;
+}
+
+/* ==========================================================================
+   Beat 8: Widescreen Split Layout — Bear Badge + Scrollable Taglish Chat Cloud
+   ========================================================================== */
+.split-letter-panel {
+  contain: layout style paint;
+  position: absolute;
+  top: max(clamp(0.6rem, 3cqh, 1.1rem), var(--safe-top));
+  right: max(clamp(0.65rem, 2.2cqw, 1.35rem), var(--safe-right));
+  bottom: max(clamp(0.6rem, 3cqh, 1.1rem), var(--safe-bottom));
+  width: 57%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.55rem;
+  z-index: 30;
+}
+
+.chat-cloud-row {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+}
+
+.bear-square-badge {
+  flex: 0 0 auto;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: var(--color-coral);
+  box-shadow: 3px 3px 0 var(--color-outline);
+  display: grid;
+  place-items: center;
+  margin-top: 0.45rem;
+}
+
+.bear-chat-cloud {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  background: var(--color-cream);
+  border: 4px solid var(--color-outline);
+  border-radius: 28px;
+  padding: 0.75rem 0.95rem;
+  box-shadow: 5px 5px 0 var(--color-outline);
+  display: flex;
+  flex-direction: column;
+}
+
+.bear-chat-tail {
+  position: absolute;
+  left: -13px;
+  top: 22px;
+  width: 18px;
+  height: 18px;
+  background: var(--color-cream);
+  border-left: 4px solid var(--color-outline);
+  border-bottom: 4px solid var(--color-outline);
+  transform: rotate(45deg);
+}
+
+.bear-chat-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+  padding: 0.45rem 0.25rem;
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0%,
+    #000 6%,
+    #000 94%,
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0%,
+    #000 6%,
+    #000 94%,
+    transparent 100%
+  );
+}
+
+.bear-chat-body {
+  font-family: var(--font-body);
+  font-size: clamp(0.76rem, 0.7rem + 0.34cqw, 0.92rem);
+  font-weight: 600;
+  line-height: 1.58;
+  color: var(--color-outline);
+  user-select: text;
+}
+
+.blow-cake-cta {
+  flex: 0 0 auto;
+}
+
+/* ==========================================================================
+   Beat 9a: Circular Top-Right Camera Porthole & Candle Blow-Out Meter
+   ========================================================================== */
+.camera-porthole {
+  contain: layout style paint;
+  position: absolute;
+  top: max(clamp(0.45rem, 2.4cqh, 0.85rem), var(--safe-top));
+  right: max(clamp(0.5rem, 1.8cqw, 1rem), var(--safe-right));
+  z-index: 35;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.28rem;
+  pointer-events: none;
+}
+
+.camera-porthole-frame {
+  position: relative;
+  width: 82px;
+  height: 82px;
+  border-radius: 50%;
+  background: var(--color-sand);
+  border: 3.5px solid var(--color-outline);
+  box-shadow: 3px 3px 0 var(--color-outline);
+  overflow: hidden;
+}
+
+.camera-porthole-ring {
+  position: absolute;
+  inset: -4px;
+  width: calc(100% + 8px);
+  height: calc(100% + 8px);
+  transform: rotate(-90deg);
+  z-index: 2;
+  pointer-events: none;
+}
+
+.camera-porthole-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1);
+  display: block;
+}
+
+.camera-porthole-badge {
+  background: rgba(255, 253, 247, 0.94);
   border: 2.5px solid var(--color-outline);
-  border-radius: 50px;
+  border-radius: 999px;
+  padding: 0.14rem 0.52rem;
+  font-family: var(--font-display);
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--color-outline);
+  box-shadow: 2px 2px 0 var(--color-outline);
+  white-space: nowrap;
+}
+
+.cake-card {
+  background: rgba(255, 253, 247, 0.94);
+  border: 3px solid var(--color-outline);
+  border-radius: 16px;
+  padding: 0.55rem 0.95rem;
+  width: min(90%, 330px);
+  text-align: center;
+  box-shadow: 4px 4px 0 var(--color-outline);
+}
+
+.cake-card-title {
+  font-size: 0.96rem;
+  color: var(--color-outline);
+}
+
+.cake-card-sub {
+  font-size: 0.76rem;
+  color: var(--color-ink-warm);
+  margin-top: 0.12rem;
+}
+
+.blow-progress-track {
+  width: 100%;
+  height: 12px;
+  background: var(--color-sand);
+  border: 2.5px solid var(--color-outline);
+  border-radius: 999px;
+  overflow: hidden;
+  margin-top: 0.4rem;
+}
+
+.blow-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--color-teal), var(--color-pink));
+  transition: width 0.08s linear;
+}
+
+.fallback-pill-wrap {
+  display: flex;
+  justify-content: center;
+  opacity: 0;
+  transform: translateY(18px);
+  transition: opacity 0.28s ease-out, transform 0.28s ease-out;
+}
+
+.fallback-pill-wrap.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+@starting-style {
+  .fallback-pill-wrap.is-visible {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+}
+
+/* ==========================================================================
+   Beat 9b: Bottom-Right Keepsake Action Bar & Sandbox Dock
+   ========================================================================== */
+.keepsake-corner-actions {
+  contain: layout style paint;
+  position: absolute;
+  right: max(clamp(0.6rem, 2.2cqw, 1.3rem), var(--safe-right));
+  bottom: max(clamp(0.55rem, 2.8cqh, 1.15rem), var(--safe-bottom));
+  z-index: 35;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.45rem;
+}
+
+.keepsake-btn-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.keepsake-status-pill {
+  background: rgba(255, 253, 247, 0.96);
+  border: 2.5px solid var(--color-outline);
+  border-radius: 999px;
+  padding: 0.24rem 0.72rem;
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: var(--color-outline);
+  box-shadow: 2px 2px 0 var(--color-outline);
+}
+
+.sandbox-dock {
+  position: absolute;
+  bottom: max(clamp(0.45rem, 2.5cqh, 0.95rem), var(--safe-bottom));
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.42rem;
+  width: min(94%, 460px);
+  z-index: 35;
+}
+
+.sandbox-chip {
+  background: rgba(255, 253, 247, 0.94);
+  border: 2.5px solid var(--color-outline);
+  border-radius: 999px;
   color: var(--color-outline);
   font-family: var(--font-display);
   font-size: 0.8rem;
-  font-weight: 600;
-  padding: 0.5rem 1rem;
+  font-weight: 700;
+  padding: 0.4rem 0.82rem;
   cursor: pointer;
   box-shadow: 2px 2px 0 var(--color-outline);
+}
+
+.sandbox-chip.active {
+  background: var(--color-yellow);
+}
+
+/* ==========================================================================
+   Act 0: Octopus Secret Password Dialog
+   ========================================================================== */
+.treasure-icon-wrap {
+  display: grid;
+  place-items: center;
+  width: 78px;
+  height: 78px;
+  margin: 0 auto 0.65rem;
+  background: var(--color-sand);
+  border: 3px solid var(--color-outline);
+  border-radius: 50%;
+}
+
+.treasure-title {
+  font-family: var(--font-display);
+  font-size: 1.2rem;
+  font-weight: 700;
+  text-align: center;
+  margin-bottom: 0.45rem;
+  color: var(--color-outline);
+}
+
+.password-hint {
+  font-family: var(--font-body);
+  font-size: 0.88rem;
+  line-height: 1.45;
+  text-align: center;
+  color: var(--color-ink-warm);
+  margin-bottom: 0.8rem;
+}
+
+.password-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.password-label {
+  display: inline-block;
+  align-self: flex-start;
+  padding: 6px 0;
+  margin: -6px 0 0.1rem;
+  font-family: var(--font-display);
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--color-outline);
+}
+
+.password-input-row {
+  display: flex;
+  align-items: stretch;
+  gap: 0.45rem;
+}
+
+.password-input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: max(1rem, 1em);
+  line-height: 1.3;
+  min-height: 48px;
+  padding: 0.65rem 0.85rem;
+  background: #ffffff;
+  color: var(--color-outline);
+  border: 3px solid var(--color-outline);
+  border-radius: 12px;
+}
+
+.password-toggle {
+  min-width: 48px;
+  min-height: 48px;
+  padding: 0 0.85rem;
+  background: var(--color-sand);
+  color: var(--color-outline);
+  border: 3px solid var(--color-outline);
+  border-radius: 12px;
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.password-input:focus-visible,
+.password-toggle:focus-visible {
+  outline: 3px solid var(--color-teal);
+  outline-offset: 2px;
+}
+
+@media (pointer: coarse) {
+  .password-input,
+  .password-toggle {
+    min-height: 52px;
+  }
+}
+
+.password-error {
+  min-height: 1.3rem;
+  margin: 0.15rem 0 0.35rem;
+  font-family: var(--font-body);
+  font-size: 0.84rem;
+  font-weight: 700;
+  color: #b83227;
+  text-align: center;
+}
+
+.password-actions {
+  display: flex;
+  justify-content: center;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+}
+
+/* ==========================================================================
+   Portrait-to-Landscape Guard Overlay
+   ========================================================================== */
+@keyframes phone-tilt-landscape {
+  0%,
+  20% {
+    transform: rotate(0deg);
+  }
+  50%,
+  78% {
+    transform: rotate(-90deg);
+  }
+  100% {
+    transform: rotate(0deg);
+  }
+}
+
+.landscape-guard-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(245, 234, 216, 0.94);
+  display: grid;
+  place-items: center;
+  padding: 1.25rem;
+}
+
+.landscape-prompt {
+  contain: layout style paint;
+  width: min(92dvw, 360px);
+  background: var(--color-cream);
+  border: 3.5px solid var(--color-outline);
+  border-radius: 22px;
+  padding: 1rem 1.15rem;
+  box-shadow: 5px 5px 0 var(--color-outline);
+  color: var(--color-outline);
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
   pointer-events: auto;
-  backdrop-filter: blur(4px);
-  -webkit-tap-highlight-color: transparent;
 }
 
-/* Animations */
-@keyframes bobble {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-8px); }
+.landscape-prompt-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
 }
 
-@keyframes popIn {
-  from {
-    opacity: 0;
-    transform: translateX(-50%) scale(0.6);
+.landscape-phone-icon {
+  flex: 0 0 auto;
+  transform-origin: center center;
+  animation: phone-tilt-landscape 3.4s ease-in-out infinite;
+}
+
+.landscape-prompt-text {
+  min-inline-size: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.landscape-prompt-title {
+  font-family: var(--font-display);
+  font-size: clamp(1.05rem, 0.94rem + 0.5dvw, 1.2rem);
+  font-weight: 700;
+  color: var(--color-outline);
+  line-height: 1.2;
+}
+
+.landscape-prompt-copy {
+  font-family: var(--font-body);
+  font-size: clamp(0.82rem, 0.74rem + 0.3dvw, 0.92rem);
+  font-weight: 700;
+  line-height: 1.38;
+  color: var(--color-ink-warm);
+}
+
+.landscape-prompt-hint {
+  font-family: var(--font-body);
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #b45309;
+  text-align: center;
+}
+
+.landscape-prompt-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.landscape-btn {
+  font-size: 0.84rem;
+  padding: 0.45rem 0.95rem;
+  box-shadow: 3px 3px 0 var(--color-outline);
+}
+
+/* ==========================================================================
+   Compact Landscape Container Queries
+   ========================================================================== */
+@container beach-stage (max-height: 410px) {
+  .countdown-sign {
+    padding: 0.35rem 0.65rem;
+    border-radius: 12px;
   }
-  to {
-    opacity: 1;
-    transform: translateX(-50%) scale(1);
+
+  .countdown-num {
+    font-size: 0.92rem;
+    min-width: 1.9rem;
+    padding: 0.08rem 0.3rem;
+  }
+
+  .countdown-post {
+    height: 8px;
+  }
+
+  .teaser-tip {
+    font-size: 0.68rem;
+    padding: 0.16rem 0.6rem;
+  }
+
+  .beach-btn {
+    font-size: 0.84rem;
+    padding: 0.46rem 1rem;
+  }
+
+  .camera-porthole-frame {
+    width: 60px;
+    height: 60px;
+  }
+
+  .camera-porthole-badge {
+    font-size: 0.62rem;
+    padding: 0.08rem 0.4rem;
   }
 }
 
-@keyframes unfold {
-  from {
-    opacity: 0;
-    transform: scaleY(0.1);
+@container beach-stage (max-height: 290px) {
+  .mute-chip,
+  .fullscreen-chip {
+    padding: 0.22rem 0.55rem;
+    font-size: 0.7rem;
+    border-width: 2.5px;
   }
-  to {
-    opacity: 1;
-    transform: scaleY(1);
+
+  .countdown-post,
+  .teaser-tip {
+    display: none;
+  }
+
+  .beach-btn {
+    font-size: 0.76rem;
+    padding: 0.32rem 0.85rem;
+    border-width: 2.5px;
+    box-shadow: 2.5px 2.5px 0 var(--color-outline);
   }
 }
 
-@keyframes float-up {
-  from {
-    opacity: 0;
-    transform: translateY(20px) scale(0.8);
+@media (prefers-reduced-motion: reduce) {
+  .landscape-phone-icon,
+  .scratch-holo-sweep {
+    animation: none;
   }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-}
 
-/* Utility */
-.visually-hidden {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border-width: 0;
+  dialog.beach-dialog,
+  dialog.beach-dialog::backdrop,
+  .fallback-pill-wrap {
+    transition-duration: 0.1s;
+  }
 }

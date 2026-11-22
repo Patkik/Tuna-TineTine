@@ -1,463 +1,611 @@
 /**
- * SandLayer.ts — Foreground: butter-cream dunes, Rilakkuma, Korilakkuma, crabs, props
- * All characters have chocolate-brown outlines (#4A2C1D) — San-X cel-shaded style
+ * SandLayer.ts — Clean foreground dunes & living coastal characters powered by AtmosphereClock:
+ * - Zero sand mounds on the beach (scratched tickets replace sand mounds)
+ * - Over-scanned organic sand dunes for 1.4x parallax without edge gaps
+ * - Spring-damper striped beach umbrella (~26 deg peak bend on strong wind gusts)
+ * - Korilakkuma: natural blinking, tap gaze tracking & spring-fluttering bow
+ * - Rilakkuma: sleepy breathing bounce & occasional wiggling yellow-soled feet
+ * - Sailboat bobbing & tilting directly from Ocean's shared wave height formula
+ * - 3 red crabs with randomized idle/scuttle/wiggle/duck state machines
  */
-import { Container, Graphics, Text, TextStyle } from 'pixi.js';
+import { Circle, Container, Graphics, Sprite } from 'pixi.js';
 import gsap from 'gsap';
+import type { Stage1Textures } from '../assets/svgTextureFactory';
+import type { PlacedItem, SceneLayout } from '../layout/sceneLayout';
+import type { AtmosphereClock } from '../atmosphere/AtmosphereClock';
+import { SpringDamper } from '../atmosphere/SpringDamper';
 import { triggerHaptic } from '../../core/haptics';
+import { audioManager } from '../../core/audioManager';
+
+const PARALLAX_OVERSCAN = 40;
+
+interface CrabAgent {
+  sprite: Sprite;
+  homeX: number;
+  homeY: number;
+  baseScale: number;
+  baseRot: number;
+  offsetX: number;
+  offsetY: number;
+  targetOffsetX: number;
+  state: 'idle' | 'scuttle' | 'wiggle' | 'duck';
+  timer: number;
+  phase: number;
+}
 
 export class SandLayer extends Container {
-  public rilakkuma!: Container;
+  private backSand = new Graphics();
+  private behindDuneLayer = new Container();
+  private frontSand = new Graphics();
+  private propsLayer = new Container();
+
   public korilakkuma!: Container;
-  public umbrella!: Container;
-  public crabs: Container[] = [];
-  public sandMounds: Container[] = [];
-  private dunesGraphics!: Graphics;
+  private korilakkumaBody!: Sprite;
+  private korilakkumaEyes = new Graphics();
+  private korilakkumaBow!: Sprite;
 
-  constructor() {
+  public rilakkumaHead!: Sprite;
+  public umbrella!: Sprite;
+  private umbrellaShadow = new Graphics();
+  public bucket!: Sprite;
+  public kiiroitoriBuried!: Sprite;
+  public sailboat!: Sprite;
+  public chickToy!: Sprite;
+  public octopus!: Sprite;
+  public bearBeachToy!: Sprite;
+  public rilakkumaFeet: [Sprite, Sprite];
+  public crabs: Sprite[] = [];
+  private crabAgents: CrabAgent[] = [];
+  public starfishMain!: Sprite;
+  public whiteShellMain!: Sprite;
+  public pinkShells: Sprite[] = [];
+  public coralTwigs: Sprite[] = [];
+  public flipFlops: [Sprite, Sprite];
+
+  private layout: SceneLayout | null = null;
+  private koriBaseY = 0;
+  private rilaBaseY = 0;
+  private rilaBaseRot = 0.6;
+  private umbBaseRot = -0.22;
+  private boatBaseY = 0;
+  private boatBaseRot = -0.06;
+
+  private readonly umbrellaSpring = new SpringDamper(-0.22, 42, 4.8);
+  private readonly bowSpring = new SpringDamper(0.384, 65, 5.0);
+  private readonly boatBobSpring = new SpringDamper(0, 32, 4.8);
+  private readonly boatRotSpring = new SpringDamper(-0.06, 36, 5.0);
+  private readonly footSprings = [
+    new SpringDamper(0, 85, 6.2),
+    new SpringDamper(0, 85, 6.2),
+  ];
+
+  private koriBlinkTimer = 4.2;
+  private koriBlinkLeft = 0;
+  private gazeTarget = { x: 0, y: 0, hasTarget: false };
+  private gazeOffset = { x: 0, y: 0 };
+  private lastDrawnGaze = { x: 0, y: 0 };
+  private footWiggleTimer = 5.5;
+  private footWiggleDuration = 0;
+  private onOctopusTap?: () => void;
+
+  constructor(textures: Stage1Textures, options?: { onOctopusTap?: () => void }) {
     super();
-    this.drawDunes(375, 812);
-    this.buildRilakkuma();
-    this.buildKorilakkuma();
-    this.buildUmbrella();
-    this.buildCrabs();
-    this.buildBeachProps();
-  }
+    this.onOctopusTap = options?.onOctopusTap;
 
-  drawDunes(w: number, h: number): void {
-    const sandY = h * 0.68;
+    this.addChild(this.backSand);
+    this.addChild(this.behindDuneLayer);
+    this.addChild(this.frontSand);
+    this.addChild(this.propsLayer);
 
-    if (this.dunesGraphics) {
-      this.dunesGraphics.clear();
-    } else {
-      this.dunesGraphics = new Graphics();
-      this.addChildAt(this.dunesGraphics, 0);
+    this.korilakkuma = new Container();
+    this.korilakkumaBody = new Sprite(textures.korilakkuma);
+    this.korilakkumaBody.anchor.set(0.5, 0.72);
+    this.korilakkuma.addChild(this.korilakkumaBody);
+
+    this.drawKorilakkumaEyes(false, 0, 0);
+    this.korilakkuma.addChild(this.korilakkumaEyes);
+
+    this.korilakkumaBow = new Sprite(textures.korilakkumaBow);
+    this.korilakkumaBow.anchor.set(0.5, 0.5);
+    this.korilakkumaBow.x = 39;
+    this.korilakkumaBow.y = -127.6;
+    this.korilakkumaBow.rotation = 0.384;
+    this.korilakkuma.addChild(this.korilakkumaBow);
+
+    this.korilakkuma.eventMode = 'static';
+    this.korilakkuma.cursor = 'pointer';
+    this.korilakkuma.on('pointertap', () => {
+      this.bowSpring.impulse(4.2);
+      this.bounceSprite(this.korilakkuma, this.koriBaseY, 'wiggle');
+    });
+    this.behindDuneLayer.addChild(this.korilakkuma);
+
+    this.rilakkumaHead = new Sprite(textures.rilakkumaHead);
+    this.rilakkumaHead.anchor.set(0.5, 0.56);
+    this.rilakkumaHead.eventMode = 'static';
+    this.rilakkumaHead.cursor = 'pointer';
+    this.rilakkumaHead.on('pointertap', () => this.wiggleRilakkuma());
+    this.behindDuneLayer.addChild(this.rilakkumaHead);
+
+    this.sailboat = new Sprite(textures.sailboat);
+    this.sailboat.anchor.set(0.5, 0.85);
+    this.behindDuneLayer.addChild(this.sailboat);
+
+    this.propsLayer.addChild(this.umbrellaShadow);
+    this.umbrella = new Sprite(textures.umbrella);
+    this.umbrella.anchor.set(0.5, 0.96);
+    this.propsLayer.addChild(this.umbrella);
+
+    this.bucket = new Sprite(textures.bucket);
+    this.bucket.anchor.set(0.5, 0.6);
+    this.propsLayer.addChild(this.bucket);
+
+    this.kiiroitoriBuried = new Sprite(textures.kiiroitoriBuried);
+    this.kiiroitoriBuried.anchor.set(0.5, 0.55);
+    this.kiiroitoriBuried.eventMode = 'static';
+    this.kiiroitoriBuried.cursor = 'pointer';
+    this.kiiroitoriBuried.on('pointertap', () =>
+      this.bounceSprite(
+        this.kiiroitoriBuried,
+        this.layout?.kiiroitoriBuried.y ?? this.kiiroitoriBuried.y,
+        'heart',
+      ),
+    );
+    this.propsLayer.addChild(this.kiiroitoriBuried);
+
+    this.chickToy = new Sprite(textures.chickToy);
+    this.chickToy.anchor.set(0.5, 0.55);
+    this.propsLayer.addChild(this.chickToy);
+
+    this.octopus = new Sprite(textures.octopus);
+    this.octopus.anchor.set(0.5, 0.55);
+    this.octopus.hitArea = new Circle(0, 0, 48);
+    this.octopus.eventMode = 'static';
+    this.octopus.cursor = 'pointer';
+    this.octopus.on('pointertap', () => {
+      this.bounceSprite(this.octopus, this.layout?.octopus.y ?? this.octopus.y, 'wiggle');
+      this.onOctopusTap?.();
+    });
+    this.propsLayer.addChild(this.octopus);
+
+    this.bearBeachToy = new Sprite(textures.bearBeachToy);
+    this.bearBeachToy.anchor.set(0.5, 0.55);
+    this.propsLayer.addChild(this.bearBeachToy);
+
+    this.rilakkumaFeet = [
+      new Sprite(textures.rilakkumaFoot),
+      new Sprite(textures.rilakkumaFoot),
+    ];
+    this.rilakkumaFeet.forEach((f) => {
+      f.anchor.set(0.5, 0.5);
+      this.propsLayer.addChild(f);
+    });
+
+    this.starfishMain = new Sprite(textures.starfish);
+    this.starfishMain.anchor.set(0.5, 0.5);
+    this.propsLayer.addChild(this.starfishMain);
+
+    this.whiteShellMain = new Sprite(textures.whiteShell);
+    this.whiteShellMain.anchor.set(0.5, 0.5);
+    this.propsLayer.addChild(this.whiteShellMain);
+
+    for (let i = 0; i < 3; i++) {
+      const ps = new Sprite(textures.pinkShell);
+      ps.anchor.set(0.5, 0.5);
+      this.pinkShells.push(ps);
+      this.propsLayer.addChild(ps);
     }
 
-    // Main sand fill
-    this.dunesGraphics.rect(0, sandY, w, h - sandY);
-    this.dunesGraphics.fill({ color: 0xF3E5AB });
+    for (let i = 0; i < 2; i++) {
+      const twig = new Sprite(textures.coralTwig);
+      twig.anchor.set(0.5, 0.6);
+      this.coralTwigs.push(twig);
+      this.propsLayer.addChild(twig);
+    }
 
-    // Dune mound — left-center
-    this.dunesGraphics.ellipse(w * 0.28, sandY, w * 0.35, 60);
-    this.dunesGraphics.fill({ color: 0xF3E5AB });
+    this.flipFlops = [
+      new Sprite(textures.flipFlop),
+      new Sprite(textures.flipFlop),
+    ];
+    this.flipFlops.forEach((ff) => {
+      ff.anchor.set(0.5, 0.5);
+      this.propsLayer.addChild(ff);
+    });
 
-    // Dune mound — right (Rilakkuma's dune)
-    this.dunesGraphics.ellipse(w * 0.75, sandY + 10, w * 0.3, 70);
-    this.dunesGraphics.fill({ color: 0xF0DC9A });
-
-    // Sand shadow troughs for depth
-    this.dunesGraphics.rect(0, sandY + 55, w, 10);
-    this.dunesGraphics.fill({ color: 0xE6D395, alpha: 0.5 });
-
-    // Shells and decorations
-    this.drawShells(w, sandY);
+    for (let i = 0; i < 3; i++) {
+      const crab = new Sprite(textures.crab);
+      crab.anchor.set(0.5, 0.55);
+      crab.eventMode = 'static';
+      crab.cursor = 'pointer';
+      const agent: CrabAgent = {
+        sprite: crab,
+        homeX: 120,
+        homeY: 500,
+        baseScale: 0.7,
+        baseRot: 0,
+        offsetX: 0,
+        offsetY: 0,
+        targetOffsetX: 0,
+        state: 'idle',
+        timer: 1.5 + i * 1.4,
+        phase: i * 2.1,
+      };
+      crab.on('pointertap', () => this.pokeCrab(agent));
+      this.crabs.push(crab);
+      this.crabAgents.push(agent);
+      this.propsLayer.addChild(crab);
+    }
   }
 
-  private drawShells(w: number, sandY: number): void {
-    // Starfish
-    this.drawStarfish(this.dunesGraphics, w * 0.52, sandY + 15, 10);
-    // Small seashell
-    this.drawSeashell(this.dunesGraphics, w * 0.6, sandY + 30, 8);
-    // Bear-print sunglasses on the left (from ref art)
-    this.drawSunglasses(this.dunesGraphics, w * 0.07, sandY + 40);
+  setGazeTarget(globalX: number, globalY: number): void {
+    this.gazeTarget.x = globalX;
+    this.gazeTarget.y = globalY;
+    this.gazeTarget.hasTarget = true;
   }
 
-  private drawStarfish(g: Graphics, x: number, y: number, r: number): void {
-    g.star(x, y, 5, r, r * 0.4);
-    g.fill({ color: 0xFACC15 });
-    g.stroke({ color: 0x4A2C1D, width: 2 });
+  setOctopusVisible(visible: boolean): void {
+    this.octopus.visible = visible;
   }
 
-  private drawSeashell(g: Graphics, x: number, y: number, r: number): void {
-    g.ellipse(x, y, r, r * 1.3);
-    g.fill({ color: 0xFDE68A });
-    g.stroke({ color: 0x4A2C1D, width: 1.5 });
+  private drawKorilakkumaEyes(closed: boolean, dx: number, dy: number): void {
+    const g = this.korilakkumaEyes;
+    g.clear();
+    const lx = -37 + dx;
+    const rx = 27 + dx;
+    const ey = -61.6 + dy;
+
+    if (closed) {
+      g.moveTo(lx - 6.5, ey).quadraticCurveTo(lx, ey + 4, lx + 6.5, ey);
+      g.stroke({ color: 0x4a2c1d, width: 4, cap: 'round' });
+      g.moveTo(rx - 6.5, ey).quadraticCurveTo(rx, ey + 4, rx + 6.5, ey);
+      g.stroke({ color: 0x4a2c1d, width: 4, cap: 'round' });
+    } else {
+      g.ellipse(lx, ey, 6.5, 7).fill({ color: 0x4a2c1d });
+      g.ellipse(rx, ey, 6.5, 7).fill({ color: 0x4a2c1d });
+    }
   }
 
-  private drawSunglasses(g: Graphics, x: number, y: number): void {
-    // Bear-shaped sunglasses from reference art
-    g.circle(x, y, 10);
-    g.fill({ color: 0x0EA5E9 });
-    g.stroke({ color: 0x4A2C1D, width: 2 });
-    g.circle(x + 24, y, 10);
-    g.fill({ color: 0x0EA5E9 });
-    g.stroke({ color: 0x4A2C1D, width: 2 });
-    g.moveTo(x + 10, y);
-    g.lineTo(x + 14, y);
-    g.stroke({ color: 0x4A2C1D, width: 2 });
+  private drawDunes(layout: SceneLayout): void {
+    const { width: w, height: h, dunes, unitScale: u } = layout;
+    const { backSandY, frontDunePoints: p } = dunes;
+
+    this.backSand.clear();
+    this.backSand.rect(
+      -PARALLAX_OVERSCAN,
+      backSandY + 46 * u,
+      w + PARALLAX_OVERSCAN * 2,
+      h - backSandY,
+    );
+    this.backSand.fill({ color: 0xf3e5ab });
+
+    const span = layout.isPortrait ? w * 0.18 : 62 * u;
+    this.frontSand.clear();
+    this.frontSand.moveTo(-PARALLAX_OVERSCAN, h + 20);
+    this.frontSand.lineTo(-PARALLAX_OVERSCAN, p.startY + 4 * u);
+    this.frontSand.bezierCurveTo(
+      w * 0.1,
+      p.leftCrestY + 10 * u,
+      p.leftCrestX - span * 0.7,
+      p.leftCrestY - 12 * u,
+      p.leftCrestX,
+      p.leftCrestY,
+    );
+    this.frontSand.bezierCurveTo(
+      p.leftCrestX + span * 0.85,
+      p.leftCrestY + 20 * u,
+      p.valleyX - span * 0.7,
+      p.valleyY + 12 * u,
+      p.valleyX,
+      p.valleyY,
+    );
+    this.frontSand.bezierCurveTo(
+      p.valleyX + span * 0.8,
+      p.valleyY - 16 * u,
+      p.peakX - span * 1.05,
+      p.peakY,
+      p.peakX,
+      p.peakY,
+    );
+    this.frontSand.bezierCurveTo(
+      p.peakX + span * 0.95,
+      p.peakY,
+      p.rilakkumaClipX - span * 0.4,
+      p.rilakkumaClipY - 22 * u,
+      p.rilakkumaClipX,
+      p.rilakkumaClipY,
+    );
+    this.frontSand.bezierCurveTo(
+      p.rilakkumaClipX + span * 0.5,
+      p.rilakkumaClipY + 32 * u,
+      p.endX - span * 0.35,
+      p.endY - 10 * u,
+      p.endX,
+      p.endY,
+    );
+    this.frontSand.bezierCurveTo(
+      p.endX + span * 0.7,
+      p.endY + 14 * u,
+      w * 0.94,
+      p.rightEdgeY,
+      w + PARALLAX_OVERSCAN,
+      p.rightEdgeY - 6 * u,
+    );
+    this.frontSand.lineTo(w + PARALLAX_OVERSCAN, h + 20);
+    this.frontSand.closePath();
+    this.frontSand.fill({ color: 0xf3e5ab });
+
+    for (const foot of layout.rilakkumaFeet) {
+      this.frontSand.ellipse(foot.x + 14 * u, foot.y + 8 * u, 20 * u, 16 * u);
+      this.frontSand.fill({ color: 0xe6d395, alpha: 0.7 });
+    }
+
+    let seed = 109;
+    const rand = () => {
+      seed = (seed * 1664525 + 1013904223) % 4294967296;
+      return seed / 4294967296;
+    };
+    const dotColors = [0xdfc88e, 0xd9be7d, 0xfaf2d6, 0xfffdf7];
+    for (let i = 0; i < 60; i++) {
+      const gx = -PARALLAX_OVERSCAN + rand() * (w + PARALLAX_OVERSCAN * 2);
+      const gy = p.peakY + 24 * u + rand() * (h - p.peakY - 28 * u);
+      const gr = (1.5 + rand() * 3.2) * u;
+      const col = dotColors[i % dotColors.length];
+      this.frontSand.circle(gx, gy, gr);
+      this.frontSand.fill({ color: col, alpha: i % 4 === 3 ? 0.55 : 0.72 });
+    }
+
+    this.umbrellaShadow.clear();
+    this.umbrellaShadow.ellipse(0, 0, 15 * u, 4.5 * u);
+    this.umbrellaShadow.fill({ color: 0xe4d29e, alpha: 0.55 });
   }
 
-  /**
-   * Rilakkuma — buried up to his head, only face visible above dune.
-   * Classic lazy Rilakkuma expression from reference art.
-   */
-  private buildRilakkuma(): void {
-    this.rilakkuma = new Container();
-    const g = new Graphics();
+  private placeSprite(sprite: Sprite | Container, spec: PlacedItem): void {
+    sprite.x = spec.x;
+    sprite.y = spec.y;
+    sprite.scale.set(spec.scale);
+    sprite.rotation = spec.rotation ?? 0;
+  }
 
-    // Head (brown round bear)
-    g.circle(0, 0, 44);
-    g.fill({ color: 0xC8923B });
-    g.stroke({ color: 0x4A2C1D, width: 3 });
-
-    // Ear left
-    g.circle(-34, -34, 16);
-    g.fill({ color: 0xC8923B });
-    g.stroke({ color: 0x4A2C1D, width: 3 });
-
-    // Ear inner left
-    g.circle(-34, -34, 9);
-    g.fill({ color: 0xF472B6, alpha: 0.6 });
-
-    // Ear right
-    g.circle(34, -34, 16);
-    g.fill({ color: 0xC8923B });
-    g.stroke({ color: 0x4A2C1D, width: 3 });
-
-    // Ear inner right
-    g.circle(34, -34, 9);
-    g.fill({ color: 0xF472B6, alpha: 0.6 });
-
-    // Face muzzle
-    g.ellipse(0, 10, 24, 18);
-    g.fill({ color: 0xE8C07A });
-    g.stroke({ color: 0x4A2C1D, width: 2 });
-
-    // Eyes (closed, sleepy ~)
-    g.moveTo(-16, -5);
-    g.bezierCurveTo(-13, -11, -10, -11, -8, -5);
-    g.stroke({ color: 0x4A2C1D, width: 3 });
-    g.moveTo(8, -5);
-    g.bezierCurveTo(10, -11, 13, -11, 16, -5);
-    g.stroke({ color: 0x4A2C1D, width: 3 });
-
-    // Nose
-    g.ellipse(0, 6, 7, 5);
-    g.fill({ color: 0x4A2C1D });
-
-    // Mouth
-    g.arc(0, 10, 7, 0.1, Math.PI - 0.1);
-    g.stroke({ color: 0x4A2C1D, width: 2 });
-
-    // Red dot on head (Rilakkuma's signature mark)
-    g.circle(0, -44, 5);
-    g.fill({ color: 0xEF4444 });
-    g.stroke({ color: 0x4A2C1D, width: 1.5 });
-
-    this.rilakkuma.addChild(g);
-    this.rilakkuma.eventMode = 'static';
-    this.rilakkuma.cursor = 'pointer';
-    this.rilakkuma.on('pointertap', () => this.wiggleRilakkuma());
-    this.addChild(this.rilakkuma);
-
-    this.startRilakkumaIdle();
+  private bounceSprite(sprite: Container, restY: number, sfx: 'wiggle' | 'heart'): void {
+    triggerHaptic(12);
+    audioManager.playSfx(sfx);
+    gsap.killTweensOf(sprite, 'y');
+    gsap.fromTo(
+      sprite,
+      { y: restY - 12 },
+      { y: restY, duration: 0.5, ease: 'bounce.out' },
+    );
   }
 
   private wiggleRilakkuma(): void {
     triggerHaptic(12);
-    gsap.to(this.rilakkuma, {
-      rotation: 0.08,
-      duration: 0.1,
-      yoyo: true,
-      repeat: 5,
-      ease: 'none',
-      onComplete: () => { this.rilakkuma.rotation = 0; },
-    });
+    audioManager.playSfx('wiggle');
+    this.footSprings[0].impulse(5.5);
+    this.footSprings[1].impulse(-5.5);
+    this.footWiggleDuration = 0.9;
+    gsap.killTweensOf(this.rilakkumaHead, 'rotation');
+    gsap.fromTo(
+      this.rilakkumaHead,
+      { rotation: this.rilaBaseRot - 0.1 },
+      {
+        rotation: this.rilaBaseRot + 0.08,
+        duration: 0.1,
+        yoyo: true,
+        repeat: 4,
+        ease: 'sine.inOut',
+        onComplete: () => {
+          this.rilakkumaHead.rotation = this.rilaBaseRot;
+        },
+      },
+    );
   }
 
-  private startRilakkumaIdle(): void {
-    // Gentle snooze bob
-    gsap.to(this.rilakkuma, {
-      y: '+=4',
-      duration: 2.5,
-      yoyo: true,
-      repeat: -1,
-      ease: 'sine.inOut',
-    });
+  private pokeCrab(agent: CrabAgent): void {
+    triggerHaptic(12);
+    audioManager.playSfx('crab');
+    const dir = agent.offsetX > 0 ? -1 : agent.offsetX < 0 ? 1 : Math.random() > 0.5 ? 1 : -1;
+    const range = 34 * (this.layout?.unitScale ?? 1);
+    agent.state = 'scuttle';
+    agent.targetOffsetX = Math.max(-range, Math.min(range, agent.offsetX + dir * range));
+    agent.timer = 0.85;
+    agent.offsetY = 0;
   }
 
-  /**
-   * Korilakkuma — white bear with pink bow, straw hat, pink shovel
-   */
-  private buildKorilakkuma(): void {
-    this.korilakkuma = new Container();
-    const g = new Graphics();
+  update(dt: number, clock: AtmosphereClock): void {
+    if (!this.layout) return;
+    const safeDt = Math.max(0, Math.min(dt, 0.05));
+    const u = this.layout.unitScale;
+    const w = Math.max(1, this.layout.width);
 
-    // Head (white bear)
-    g.circle(0, 0, 36);
-    g.fill({ color: 0xFFFBF5 });
-    g.stroke({ color: 0x4A2C1D, width: 3 });
+    // 1. Striped Umbrella (~26 deg peak bend during story wind gusts) + shadow
+    const umbWind = clock.windAt(this.umbrella.x);
+    const windDeflect = Math.max(-0.3, Math.min(0.46, umbWind * 0.24));
+    const umbTilt = this.umbrellaSpring.step(this.umbBaseRot + windDeflect, safeDt);
+    this.umbrella.rotation = umbTilt;
+    this.umbrellaShadow.x = this.umbrella.x + (umbTilt - this.umbBaseRot) * 58 * u;
+    this.umbrellaShadow.y = this.umbrella.y + 4 * u;
 
-    // Ears
-    g.circle(-28, -28, 13);
-    g.fill({ color: 0xFFFBF5 });
-    g.stroke({ color: 0x4A2C1D, width: 3 });
-    g.circle(28, -28, 13);
-    g.fill({ color: 0xFFFBF5 });
-    g.stroke({ color: 0x4A2C1D, width: 3 });
+    // 2. Korilakkuma: hat bow spring + natural blink + quantized tap gaze
+    const koriWind = clock.windAt(this.korilakkuma.x);
+    this.korilakkumaBow.rotation = this.bowSpring.step(0.384 + koriWind * 0.24, safeDt);
+    this.korilakkuma.y = this.koriBaseY + Math.sin(clock.time * 1.65) * 2 * u;
 
-    // Pink bow on right ear
-    g.moveTo(20, -38);
-    g.lineTo(36, -50);
-    g.lineTo(36, -34);
-    g.closePath();
-    g.fill({ color: 0xF472B6 });
-    g.stroke({ color: 0x4A2C1D, width: 2 });
-    g.moveTo(36, -50);
-    g.lineTo(50, -38);
-    g.lineTo(36, -34);
-    g.closePath();
-    g.fill({ color: 0xF472B6 });
-    g.stroke({ color: 0x4A2C1D, width: 2 });
-    g.circle(36, -42, 5);
-    g.fill({ color: 0xFF90C8 });
-    g.stroke({ color: 0x4A2C1D, width: 1.5 });
+    let gazeX = 0;
+    let gazeY = 0;
+    if (this.gazeTarget.hasTarget) {
+      const dx = this.gazeTarget.x - this.korilakkuma.x;
+      const dy = this.gazeTarget.y - (this.korilakkuma.y - 60 * u);
+      const len = Math.max(1, Math.hypot(dx, dy));
+      gazeX = (dx / len) * 2.2;
+      gazeY = (dy / len) * 1.6;
+    }
+    const gk = 1 - Math.exp(-safeDt * 10);
+    this.gazeOffset.x += (gazeX - this.gazeOffset.x) * gk;
+    this.gazeOffset.y += (gazeY - this.gazeOffset.y) * gk;
 
-    // Face muzzle
-    g.ellipse(0, 10, 20, 15);
-    g.fill({ color: 0xFFF0D8 });
-    g.stroke({ color: 0x4A2C1D, width: 1.5 });
+    const eyesNeedRedraw =
+      Math.abs(this.lastDrawnGaze.x - this.gazeOffset.x) > 0.18 ||
+      Math.abs(this.lastDrawnGaze.y - this.gazeOffset.y) > 0.18;
 
-    // Eyes (dot eyes)
-    g.circle(-12, -4, 5);
-    g.fill({ color: 0x4A2C1D });
-    g.circle(12, -4, 5);
-    g.fill({ color: 0x4A2C1D });
-
-    // Blush
-    g.circle(-18, 8, 7);
-    g.fill({ color: 0xF472B6, alpha: 0.35 });
-    g.circle(18, 8, 7);
-    g.fill({ color: 0xF472B6, alpha: 0.35 });
-
-    // Nose
-    g.circle(0, 6, 4);
-    g.fill({ color: 0x4A2C1D });
-
-    // Straw hat
-    const hat = new Graphics();
-    hat.ellipse(0, -44, 42, 10);
-    hat.fill({ color: 0xF5DEB3 });
-    hat.stroke({ color: 0x4A2C1D, width: 2.5 });
-    hat.rect(-22, -72, 44, 32);
-    hat.fill({ color: 0xF5DEB3 });
-    hat.stroke({ color: 0x4A2C1D, width: 2.5 });
-    // Hat band
-    hat.rect(-22, -60, 44, 6);
-    hat.fill({ color: 0xF472B6 });
-
-    // Pink shovel (held in left hand)
-    const shovel = new Graphics();
-    shovel.rect(-6, -20, 12, 48);
-    shovel.fill({ color: 0xF472B6 });
-    shovel.stroke({ color: 0x4A2C1D, width: 2 });
-    shovel.ellipse(0, -26, 14, 11);
-    shovel.fill({ color: 0xF472B6 });
-    shovel.stroke({ color: 0x4A2C1D, width: 2 });
-    shovel.x = -52;
-    shovel.y = -10;
-
-    this.korilakkuma.addChild(g);
-    this.korilakkuma.addChild(hat);
-    this.korilakkuma.addChild(shovel);
-    this.addChild(this.korilakkuma);
-
-    // Start subtle idle animation
-    gsap.to(this.korilakkuma, {
-      y: '+=3',
-      duration: 2,
-      yoyo: true,
-      repeat: -1,
-      ease: 'sine.inOut',
-    });
-  }
-
-  /**
-   * Striped beach umbrella — teal and white, from reference art
-   */
-  private buildUmbrella(): void {
-    this.umbrella = new Container();
-    const g = new Graphics();
-
-    // Pole
-    g.rect(-2, 0, 4, 80);
-    g.fill({ color: 0x4A2C1D });
-
-    // Canopy — alternating teal/white/pink segments
-    const colors = [0x06B6D4, 0xFFFFFF, 0xF472B6, 0xFFFFFF, 0x06B6D4, 0xFFFFFF];
-    for (let i = 0; i < 6; i++) {
-      const startAngle = (Math.PI / 6) * i - Math.PI;
-      const endAngle = (Math.PI / 6) * (i + 1) - Math.PI;
-      g.moveTo(0, 0);
-      g.arc(0, 0, 50, startAngle, endAngle);
-      g.closePath();
-      g.fill({ color: colors[i] });
-      g.stroke({ color: 0x4A2C1D, width: 1.5 });
+    if (this.koriBlinkLeft > 0) {
+      this.koriBlinkLeft -= safeDt;
+      if (this.koriBlinkLeft <= 0) {
+        this.drawKorilakkumaEyes(false, this.gazeOffset.x, this.gazeOffset.y);
+        this.lastDrawnGaze.x = this.gazeOffset.x;
+        this.lastDrawnGaze.y = this.gazeOffset.y;
+      }
+    } else {
+      this.koriBlinkTimer -= safeDt;
+      if (this.koriBlinkTimer <= 0) {
+        this.koriBlinkTimer = 3.5 + Math.random() * 3.0;
+        this.koriBlinkLeft = 0.14;
+        this.drawKorilakkumaEyes(true, this.gazeOffset.x, this.gazeOffset.y);
+      } else if (eyesNeedRedraw) {
+        this.drawKorilakkumaEyes(false, this.gazeOffset.x, this.gazeOffset.y);
+        this.lastDrawnGaze.x = this.gazeOffset.x;
+        this.lastDrawnGaze.y = this.gazeOffset.y;
+      }
     }
 
-    this.umbrella.addChild(g);
-    this.addChild(this.umbrella);
+    // 3. Rilakkuma sleepy breathing & occasional yellow-soled foot wiggles
+    this.rilakkumaHead.y = this.rilaBaseY + Math.sin(clock.time * 1.15) * 3 * u;
 
-    gsap.to(this.umbrella, {
-      rotation: 0.03,
-      duration: 3,
-      yoyo: true,
-      repeat: -1,
-      ease: 'sine.inOut',
-    });
-  }
+    if (this.footWiggleDuration > 0) {
+      this.footWiggleDuration -= safeDt;
+    } else {
+      this.footWiggleTimer -= safeDt;
+      if (this.footWiggleTimer <= 0) {
+        this.footWiggleTimer = 5.5 + Math.random() * 3.5;
+        this.footWiggleDuration = 1.1;
+      }
+    }
+    for (let idx = 0; idx < 2; idx++) {
+      const foot = this.rilakkumaFeet[idx];
+      const base = this.layout.rilakkumaFeet[idx];
+      if (!base) continue;
+      const targetAngle =
+        this.footWiggleDuration > 0
+          ? Math.sin(clock.time * 11 + idx * 1.8) * 0.16
+          : 0;
+      const delta = this.footSprings[idx].step(targetAngle, safeDt);
+      foot.rotation = (base.rotation ?? 0) + delta;
+    }
 
-  /**
-   * Red scuttling crabs — from reference art
-   */
-  private buildCrabs(): void {
-    const positions = [
-      { x: 0.38, y: 0 },
-      { x: 0.55, y: 0 },
-    ];
+    // 4. Toy Sailboat riding OceanLayer's shared wave formula via spring-dampers
+    const nx = Math.max(0, Math.min(1, this.sailboat.x / w));
+    const waveBob = this.boatBobSpring.step(clock.waveHeightAt(nx) * 4.5 * u, safeDt);
+    const waveTilt = this.boatRotSpring.step(
+      this.boatBaseRot + clock.waveSlopeAt(nx) * 0.08 + clock.windAt(this.sailboat.x) * 0.07,
+      safeDt,
+    );
+    this.sailboat.y = this.boatBaseY + waveBob;
+    this.sailboat.rotation = waveTilt;
 
-    for (const pos of positions) {
-      const crab = new Container();
-      const g = new Graphics();
-
-      // Body
-      g.ellipse(0, 0, 16, 11);
-      g.fill({ color: 0xEF4444 });
-      g.stroke({ color: 0x4A2C1D, width: 2 });
-
-      // Eyes (stalks)
-      g.rect(-8, -14, 4, 10);
-      g.fill({ color: 0xEF4444 });
-      g.circle(-6, -15, 4);
-      g.fill({ color: 0x4A2C1D });
-
-      g.rect(4, -14, 4, 10);
-      g.fill({ color: 0xEF4444 });
-      g.circle(6, -15, 4);
-      g.fill({ color: 0x4A2C1D });
-
-      // Claws
-      g.ellipse(-22, -4, 10, 7);
-      g.fill({ color: 0xEF4444 });
-      g.stroke({ color: 0x4A2C1D, width: 1.5 });
-      g.ellipse(22, -4, 10, 7);
-      g.fill({ color: 0xEF4444 });
-      g.stroke({ color: 0x4A2C1D, width: 1.5 });
-
-      // Legs
-      for (let l = -1; l <= 1; l += 2) {
-        for (let j = 0; j < 3; j++) {
-          g.moveTo(l * 10, 0);
-          g.lineTo(l * (22 + j * 4), 8 + j * 2);
-          g.stroke({ color: 0x4A2C1D, width: 2 });
+    // 5. Randomized Crab Critters
+    const maxRange = 32 * u;
+    for (let i = 0; i < this.crabAgents.length; i++) {
+      const agent = this.crabAgents[i];
+      agent.timer -= safeDt;
+      if (agent.timer <= 0) {
+        const roll = Math.random();
+        if (agent.state !== 'idle' && roll < 0.45) {
+          agent.state = 'idle';
+          agent.timer = 1.6 + Math.random() * 2.4;
+          agent.offsetY = 0;
+        } else if (roll < 0.75) {
+          agent.state = 'scuttle';
+          agent.targetOffsetX = (Math.random() * 2 - 1) * maxRange;
+          agent.timer = 0.9 + Math.random() * 0.6;
+          agent.offsetY = 0;
+        } else if (roll < 0.9) {
+          agent.state = 'wiggle';
+          agent.timer = 0.85;
+          agent.offsetY = 0;
+        } else {
+          agent.state = 'duck';
+          agent.timer = 1.4 + Math.random() * 0.9;
         }
       }
 
-      crab.addChild(g);
-      crab.eventMode = 'static';
-      crab.cursor = 'pointer';
+      if (agent.state === 'scuttle') {
+        const stepK = 1 - Math.exp(-safeDt * 4.5);
+        agent.offsetX += (agent.targetOffsetX - agent.offsetX) * stepK;
+        agent.sprite.rotation = agent.baseRot + Math.sin(clock.time * 18 + agent.phase) * 0.09;
+      } else if (agent.state === 'wiggle') {
+        agent.sprite.rotation = agent.baseRot + Math.sin(clock.time * 16 + agent.phase) * 0.14;
+      } else {
+        agent.sprite.rotation = agent.baseRot;
+      }
 
-      const crabInstance = crab;
-      crab.on('pointertap', () => {
-        triggerHaptic(12);
-        this.scuttleCrab(crabInstance);
-      });
+      const targetDuckY = agent.state === 'duck' ? 6.5 * u : 0;
+      agent.offsetY += (targetDuckY - agent.offsetY) * (1 - Math.exp(-safeDt * 7));
+      const duckScale = agent.state === 'duck' ? 0.92 : 1;
 
-      this.crabs.push(crab);
-      this.addChild(crab);
-
-      // Idle pinch animation
-      gsap.to(g.scale, {
-        x: 1.05,
-        duration: 0.5,
-        yoyo: true,
-        repeat: -1,
-        ease: 'sine.inOut',
-        delay: Math.random() * 1,
-      });
+      agent.sprite.x = agent.homeX + agent.offsetX;
+      agent.sprite.y = agent.homeY + agent.offsetY;
+      agent.sprite.scale.set(agent.baseScale * duckScale);
     }
   }
 
-  private scuttleCrab(crab: Container): void {
-    const dir = Math.random() > 0.5 ? 1 : -1;
-    gsap.to(crab, {
-      x: `+=${dir * 50}`,
-      duration: 0.4,
-      ease: 'back.out(2)',
-      yoyo: true,
-      repeat: 2,
+  applyLayout(layout: SceneLayout): void {
+    this.layout = layout;
+    this.drawDunes(layout);
+
+    this.koriBaseY = layout.korilakkuma.y;
+    this.rilaBaseY = layout.rilakkumaHead.y;
+    this.rilaBaseRot = layout.rilakkumaHead.rotation ?? 0.62;
+    this.umbBaseRot = layout.umbrella.rotation ?? -0.22;
+    this.boatBaseY = layout.sailboat.y;
+    this.boatBaseRot = layout.sailboat.rotation ?? -0.06;
+
+    this.umbrellaSpring.reset(this.umbBaseRot);
+    this.boatRotSpring.reset(this.boatBaseRot);
+    this.boatBobSpring.reset(0);
+
+    this.placeSprite(this.korilakkuma, layout.korilakkuma);
+    this.placeSprite(this.rilakkumaHead, layout.rilakkumaHead);
+    this.placeSprite(this.umbrella, layout.umbrella);
+    this.umbrellaShadow.x = layout.umbrella.x;
+    this.umbrellaShadow.y = layout.umbrella.y + 4 * layout.unitScale;
+
+    this.placeSprite(this.bucket, layout.bucket);
+    this.placeSprite(this.kiiroitoriBuried, layout.kiiroitoriBuried);
+    this.placeSprite(this.sailboat, layout.sailboat);
+    this.placeSprite(this.chickToy, layout.chickToy);
+    this.placeSprite(this.octopus, layout.octopus);
+    this.placeSprite(this.bearBeachToy, layout.bearBeachToy);
+    this.placeSprite(this.starfishMain, layout.starfishMain);
+    this.placeSprite(this.whiteShellMain, layout.whiteShellMain);
+
+    this.rilakkumaFeet.forEach((f, i) => {
+      if (layout.rilakkumaFeet[i]) this.placeSprite(f, layout.rilakkumaFeet[i]);
+    });
+    this.crabAgents.forEach((agent, i) => {
+      const cfg = layout.crabs[i];
+      if (!cfg) return;
+      agent.homeX = cfg.x;
+      agent.homeY = cfg.y;
+      agent.baseScale = cfg.scale;
+      agent.baseRot = cfg.rotation ?? 0;
+      agent.offsetX = 0;
+      agent.offsetY = 0;
+      this.placeSprite(agent.sprite, cfg);
+    });
+    this.pinkShells.forEach((ps, i) => {
+      if (layout.pinkShells[i]) this.placeSprite(ps, layout.pinkShells[i]);
+    });
+    this.coralTwigs.forEach((t, i) => {
+      if (layout.coralTwigs[i]) this.placeSprite(t, layout.coralTwigs[i]);
+    });
+    this.flipFlops.forEach((ff, i) => {
+      if (layout.flipFlops[i]) this.placeSprite(ff, layout.flipFlops[i]);
     });
   }
 
-  private buildBeachProps(): void {
-    // Pink bucket (Korilakkuma's polka-dot bucket from reference art)
-    const bucket = new Graphics();
-    // Bucket body
-    bucket.rect(-14, -26, 28, 26);
-    bucket.fill({ color: 0xF472B6 });
-    bucket.stroke({ color: 0x4A2C1D, width: 2.5 });
-    // Polka dots
-    for (let i = 0; i < 4; i++) {
-      bucket.circle(-8 + (i % 2) * 16, -18 + Math.floor(i / 2) * 12, 3);
-      bucket.fill({ color: 0xFFFFFF, alpha: 0.7 });
-    }
-    // Handle
-    bucket.arc(0, -26, 14, Math.PI, 0);
-    bucket.stroke({ color: 0x4A2C1D, width: 2.5 });
-    this.addChild(bucket);
-
-    // Red octopus (small prop) from reference art
-    const octopus = new Graphics();
-    octopus.circle(0, -8, 12);
-    octopus.fill({ color: 0xEF4444 });
-    octopus.stroke({ color: 0x4A2C1D, width: 2 });
-    // Tentacles
-    for (let i = 0; i < 5; i++) {
-      const angle = (Math.PI / 4) * i;
-      octopus.moveTo(Math.cos(angle) * 8, 4);
-      octopus.quadraticCurveTo(
-        Math.cos(angle) * 18,
-        14,
-        Math.cos(angle) * 14,
-        24
-      );
-      octopus.stroke({ color: 0x4A2C1D, width: 2 });
-    }
-    // Eyes
-    octopus.circle(-5, -10, 3);
-    octopus.fill({ color: 0xFFFFFF });
-    octopus.circle(5, -10, 3);
-    octopus.fill({ color: 0xFFFFFF });
-    octopus.circle(-5, -10, 1.5);
-    octopus.fill({ color: 0x4A2C1D });
-    octopus.circle(5, -10, 1.5);
-    octopus.fill({ color: 0x4A2C1D });
-    this.addChild(octopus);
-  }
-
-  resize(w: number, h: number): void {
-    this.drawDunes(w, h);
-
-    const sandY = h * 0.68;
-
-    // Position characters based on stage dimensions
-    if (this.rilakkuma) {
-      this.rilakkuma.x = w * 0.78;
-      this.rilakkuma.y = sandY + 10;
-    }
-    if (this.korilakkuma) {
-      this.korilakkuma.x = w * 0.22;
-      this.korilakkuma.y = sandY - 20;
-    }
-    if (this.umbrella) {
-      this.umbrella.x = w * 0.5;
-      this.umbrella.y = sandY - 50;
-    }
-
-    this.crabs.forEach((crab, i) => {
-      crab.x = w * (0.38 + i * 0.17);
-      crab.y = sandY + 25;
-    });
+  destroyLayer(): void {
+    gsap.killTweensOf(this.korilakkuma);
+    gsap.killTweensOf(this.rilakkumaHead);
+    gsap.killTweensOf(this.kiiroitoriBuried);
+    gsap.killTweensOf(this.octopus);
   }
 }

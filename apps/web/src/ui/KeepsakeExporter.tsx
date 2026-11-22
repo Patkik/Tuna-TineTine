@@ -1,62 +1,65 @@
 /** @jsxImportSource preact */
-import { h } from 'preact';
+/**
+ * KeepsakeExporter.tsx — Beat 9b bottom-right landscape keepsake & sandbox action buttons.
+ */
 import { useState } from 'preact/hooks';
 import {
-  generateKeepsakeBlob,
   formatKeepsakeFilename,
+  generateKeepsakeBlob,
   triggerDownload,
 } from '../core/keepsakeGenerator';
+import { triggerHaptic } from '../core/haptics';
 
 interface KeepsakeExporterProps {
-  stageCanvas: HTMLCanvasElement | null;
-  onToggleSandbox: () => void;
+  onCaptureStage: () => HTMLCanvasElement | null;
+  onEnterSandbox: () => void;
+  onSaved: () => void;
 }
 
-export function KeepsakeExporter({ stageCanvas, onToggleSandbox }: KeepsakeExporterProps) {
-  const [loading, setLoading] = useState(false);
-  const [done, setDone] = useState(false);
+export function KeepsakeExporter({
+  onCaptureStage,
+  onEnterSandbox,
+  onSaved,
+}: KeepsakeExporterProps) {
+  const [saving, setSaving] = useState(false);
+  const [statusMsg, setStatusMsg] = useState<string | null>(null);
 
   const handleSave = async () => {
-    if (!stageCanvas || loading) return;
-    setLoading(true);
+    const snapshot = onCaptureStage();
+    if (!snapshot) return;
+
+    setSaving(true);
+    triggerHaptic(18);
     try {
-      const blob = await generateKeepsakeBlob(stageCanvas);
-      const filename = formatKeepsakeFilename('Kristine', '2027-02-05');
-      triggerDownload(blob, filename);
-      setDone(true);
-    } catch (err) {
-      console.error('Keepsake export failed:', err);
+      const blob = await generateKeepsakeBlob(snapshot, 'Kristine', 'February 5, 2027');
+      triggerDownload(blob, formatKeepsakeFilename('2027-02-05'));
+      setStatusMsg('Saved 1920×1080 Keepsake! 📸✨');
+      onSaved();
+    } catch {
+      setStatusMsg('Unable to generate keepsake right now.');
     } finally {
-      setLoading(false);
+      setSaving(false);
     }
   };
 
   return (
-    <div
-      style={{
-        position: 'absolute',
-        bottom: 'calc(env(safe-area-inset-bottom, 0px) + 1.5rem)',
-        left: 0,
-        right: 0,
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        gap: '0.75rem',
-        pointerEvents: 'none',
-      }}
-    >
-      <button
-        class="keepsake-btn interactive"
-        onClick={handleSave}
-        disabled={loading}
-        aria-label="Save commemorative keepsake card"
-      >
-        {done ? '✅ Saved to Gallery!' : loading ? '📸 Compositing...' : '📸 Save Keepsake Card'}
-      </button>
-
-      <div class="sandbox-controls">
-        <button class="sandbox-btn interactive" onClick={onToggleSandbox}>
+    <div class="keepsake-corner-actions interactive">
+      {statusMsg && <p class="keepsake-status-pill">{statusMsg}</p>}
+      <div class="keepsake-btn-row">
+        <button
+          type="button"
+          class="beach-btn beach-btn--cream"
+          onClick={onEnterSandbox}
+        >
           🏖️ Play on the Beach
+        </button>
+        <button
+          type="button"
+          class="beach-btn beach-btn--yellow"
+          disabled={saving}
+          onClick={handleSave}
+        >
+          {saving ? 'Preparing...' : '📸 Save Keepsake Card'}
         </button>
       </div>
     </div>

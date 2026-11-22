@@ -1,31 +1,45 @@
-// Vitest test setup
-// Canvas mock for jsdom if needed
-if (typeof HTMLCanvasElement !== 'undefined') {
-  HTMLCanvasElement.prototype.getContext = (() => {
-    return {
-      fillRect: () => {},
-      clearRect: () => {},
-      getImageData: () => ({ data: new Array(4) }),
-      putImageData: () => {},
-      createImageData: () => [],
-      setTransform: () => {},
-      drawImage: () => {},
-      save: () => {},
-      fillText: () => {},
-      restore: () => {},
-      beginPath: () => {},
-      moveTo: () => {},
-      lineTo: () => {},
-      closePath: () => {},
-      stroke: () => {},
-      fill: () => {},
-      arc: () => {},
-      ellipse: () => {},
-      roundRect: () => {},
-    };
-  }) as any;
-
-  HTMLCanvasElement.prototype.toBlob = function (callback) {
-    callback(new Blob(['mock-image-data'], { type: 'image/png' }));
+/**
+ * setup.ts — Vitest JSDOM environment mocks.
+ */
+if (typeof globalThis.ResizeObserver === 'undefined') {
+  globalThis.ResizeObserver = class ResizeObserver {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
   };
+}
+
+if (typeof window !== 'undefined' && typeof window.matchMedia !== 'function') {
+  window.matchMedia = () =>
+    ({
+      matches: false,
+      media: '',
+      onchange: null,
+      addListener: () => {},
+      removeListener: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    }) as MediaQueryList;
+}
+
+if (typeof HTMLDialogElement !== 'undefined') {
+  if (!HTMLDialogElement.prototype.showModal) {
+    HTMLDialogElement.prototype.showModal = function () {
+      this.setAttribute('open', '');
+    };
+  }
+  if (!HTMLDialogElement.prototype.close) {
+    HTMLDialogElement.prototype.close = function () {
+      this.removeAttribute('open');
+      this.dispatchEvent(new Event('close'));
+    };
+  }
+}
+
+if (typeof navigator !== 'undefined' && typeof navigator.vibrate !== 'function') {
+  Object.defineProperty(navigator, 'vibrate', {
+    value: () => true,
+    configurable: true,
+  });
 }
