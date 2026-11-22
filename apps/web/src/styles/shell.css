@@ -230,7 +230,7 @@ p {
   border-radius: 14px;
   padding: 0.52rem 0.88rem;
   box-shadow: 4px 4px 0 var(--color-outline);
-  pointer-events: auto;
+  pointer-events: none;
 }
 
 .countdown-post {
@@ -1136,8 +1136,26 @@ dialog.beach-dialog.scroll-dialog {
 }
 
 /* ==========================================================================
-   Act 0: Octopus Secret Password Dialog
+   Act 0: Octopus Secret Password Dialog & Tap Hotspot
    ========================================================================== */
+.octopus-hotspot {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  z-index: 26;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.octopus-hotspot:focus-visible {
+  outline: 3px solid var(--color-teal);
+  outline-offset: 2px;
+}
+
 .treasure-icon-wrap {
   display: grid;
   place-items: center;
@@ -1246,6 +1264,46 @@ dialog.beach-dialog.scroll-dialog {
   justify-content: center;
   gap: 0.65rem;
   flex-wrap: wrap;
+}
+
+@media (max-height: 450px) {
+  dialog.beach-dialog.password-dialog {
+    padding: 0.85rem 1.05rem;
+    max-height: 92dvh;
+  }
+
+  .password-dialog .treasure-icon-wrap {
+    width: 48px;
+    height: 48px;
+    margin-bottom: 0.35rem;
+  }
+
+  .password-dialog .treasure-icon-wrap svg {
+    width: 32px;
+    height: 32px;
+  }
+
+  .password-dialog .treasure-title {
+    font-size: 1.02rem;
+    margin-bottom: 0.2rem;
+  }
+
+  .password-dialog .password-hint {
+    font-size: 0.78rem;
+    margin-bottom: 0.45rem;
+  }
+
+  .password-dialog .password-input,
+  .password-dialog .password-toggle {
+    min-height: 44px;
+    padding-top: 0.4rem;
+    padding-bottom: 0.4rem;
+  }
+
+  .password-dialog .password-error {
+    min-height: 1rem;
+    margin: 0.1rem 0 0.2rem;
+  }
 }
 
 /* ==========================================================================

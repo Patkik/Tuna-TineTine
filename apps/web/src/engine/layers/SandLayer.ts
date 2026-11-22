@@ -159,11 +159,11 @@ export class SandLayer extends Container {
 
     this.octopus = new Sprite(textures.octopus);
     this.octopus.anchor.set(0.5, 0.55);
-    this.octopus.hitArea = new Circle(0, 0, 48);
+    this.octopus.hitArea = new Circle(0, 0, 56);
     this.octopus.eventMode = 'static';
     this.octopus.cursor = 'pointer';
     this.octopus.on('pointertap', () => {
-      this.bounceSprite(this.octopus, this.layout?.octopus.y ?? this.octopus.y, 'wiggle');
+      this.bounceOctopus();
       this.onOctopusTap?.();
     });
     this.propsLayer.addChild(this.octopus);
@@ -245,6 +245,10 @@ export class SandLayer extends Container {
 
   setOctopusVisible(visible: boolean): void {
     this.octopus.visible = visible;
+  }
+
+  bounceOctopus(): void {
+    this.bounceSprite(this.octopus, this.layout?.octopus.y ?? this.octopus.y, 'wiggle');
   }
 
   private drawKorilakkumaEyes(closed: boolean, dx: number, dy: number): void {

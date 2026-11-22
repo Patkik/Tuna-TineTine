@@ -135,12 +135,12 @@ export function computeSceneLayout(width: number, height: number): SceneLayout {
       rilakkumaHead: { x: w * 0.808, y: h * 0.642, scale: u * 1.0, rotation: 0.62 },
       umbrella: { x: w * 0.638, y: h * 0.582, scale: u * 0.86, rotation: -0.22 },
 
-      bucket: { x: w * 0.182, y: h * 0.865, scale: u * 0.82, rotation: -0.1 },
+      bucket: { x: w * 0.168, y: h * 0.865, scale: u * 0.82, rotation: -0.1 },
       kiiroitoriBuried: { x: w * 0.362, y: h * 0.755, scale: u * 0.78 },
       sailboat: { x: w * 0.478, y: h * 0.708, scale: u * 0.78, rotation: -0.06 },
       chickToy: { x: w * 0.365, y: h * 0.885, scale: u * 0.82 },
-      octopus: { x: w * 0.315, y: h * 0.925, scale: u * 0.76 },
-      bearBeachToy: { x: w * 0.115, y: h * 0.94, scale: u * 0.78 },
+      octopus: { x: w * 0.252, y: h * 0.885, scale: u * 0.8 },
+      bearBeachToy: { x: w * 0.105, y: h * 0.935, scale: u * 0.78 },
       rilakkumaFeet: [
         { x: w * 0.585, y: h * 0.862, scale: u * 0.85, rotation: -0.22 },
         { x: w * 0.658, y: h * 0.935, scale: u * 0.85, rotation: -0.16 },
@@ -154,7 +154,7 @@ export function computeSceneLayout(width: number, height: number): SceneLayout {
       whiteShellMain: { x: w * 0.752, y: h * 0.785, scale: u * 0.82 },
       pinkShells: [
         { x: w * 0.682, y: h * 0.74, scale: u * 0.7, rotation: -0.15 },
-        { x: w * 0.238, y: h * 0.905, scale: u * 0.68, rotation: 0.2 },
+        { x: w * 0.205, y: h * 0.94, scale: u * 0.68, rotation: 0.2 },
         { x: w * 0.932, y: h * 0.88, scale: u * 0.72, rotation: -0.1 },
       ],
       coralTwigs: [
@@ -213,7 +213,7 @@ export function computeSceneLayout(width: number, height: number): SceneLayout {
     kiiroitoriBuried: { x: w * 0.39, y: h * 0.648, scale: u * 0.52 },
     sailboat: { x: w * 0.50, y: h * 0.635, scale: u * 0.5, rotation: -0.06 },
     chickToy: { x: w * 0.44, y: h * 0.735, scale: u * 0.48 },
-    octopus: { x: w * 0.55, y: h * 0.745, scale: u * 0.48 },
+    octopus: { x: w * 0.53, y: h * 0.678, scale: u * 0.54 },
     bearBeachToy: { x: w * 0.14, y: h * 0.768, scale: u * 0.5 },
     rilakkumaFeet: [
       { x: w * 0.66, y: h * 0.705, scale: u * 0.54, rotation: -0.22 },

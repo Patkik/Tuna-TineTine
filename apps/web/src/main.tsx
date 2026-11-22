@@ -28,6 +28,7 @@ import { audioManager } from './core/audioManager';
 import { storyStore, useStoryStore } from './store/storyFsm';
 import { CountdownSign } from './ui/CountdownSign';
 import { LandscapeGuardOverlay } from './ui/LandscapeGuardOverlay';
+import { PasswordDialog } from './ui/PasswordDialog';
 import { toggleBrowserFullscreen } from './core/orientationGuard';
 import type { BirthdayExperienceProps } from './scenes/BirthdayExperience';
 import './styles/shell.css';
@@ -45,17 +46,17 @@ function App() {
   const sandRef = useRef<SandLayer | null>(null);
   const effectsRef = useRef<AtmosphereEffectsLayer | null>(null);
   const initialFrame = computeInitialMetrics();
-  const layoutRef = useRef<SceneLayout>(
-    computeSceneLayout(initialFrame.width, initialFrame.height),
-  );
+  const initialLayout = computeSceneLayout(initialFrame.width, initialFrame.height);
+  const layoutRef = useRef<SceneLayout>(initialLayout);
 
   const [ready, setReady] = useState(false);
   const [serverNow, setServerNow] = useState(Date.now());
   const [passwordModalOpen, setPasswordModalOpen] = useState(false);
-  const [PasswordComp, setPasswordComp] = useState<ComponentType<{
-    onClose: () => void;
-    onSubmitPassword: (pw: string) => Promise<boolean>;
-  }> | null>(null);
+  const [octopusSpot, setOctopusSpot] = useState(() => ({
+    x: initialLayout.octopus.x,
+    y: initialLayout.octopus.y,
+    size: Math.max(60, Math.round(84 * initialLayout.octopus.scale)),
+  }));
   const [isPortraitViewport, setIsPortraitViewport] = useState(initialFrame.isPortraitViewport);
   const [promptDismissed, setPromptDismissed] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(
@@ -103,14 +104,6 @@ function App() {
     };
   }, []);
 
-  // Lazy-load PasswordDialog ONLY if the secret octopus is tapped while locked
-  useEffect(() => {
-    if (!passwordModalOpen || PasswordComp) return;
-    void import('./ui/PasswordDialog').then(({ PasswordDialog }) => {
-      setPasswordComp(() => PasswordDialog);
-    });
-  }, [passwordModalOpen, PasswordComp]);
-
   const activateUnlockedShell = useCallback(
     async (status: TimeGateStatus, previewMode: boolean, isDisposed?: () => boolean) => {
       setServerNow(status.serverNow);
@@ -156,6 +149,11 @@ function App() {
     const applyAllLayouts = (w: number, h: number) => {
       const next = computeSceneLayout(w, h);
       layoutRef.current = next;
+      setOctopusSpot({
+        x: next.octopus.x,
+        y: next.octopus.y,
+        size: Math.max(60, Math.round(84 * next.octopus.scale)),
+      });
       skyRef.current?.applyLayout(next);
       oceanRef.current?.applyLayout(next);
       sandRef.current?.applyLayout(next);
@@ -178,7 +176,7 @@ function App() {
         onOctopusTap: () => {
           const st = storyStore.getState();
           if (!st.unlocked && st.currentState === 'LOCKED_GATE') {
-            setPasswordModalOpen(true);
+            requestAnimationFrame(() => setPasswordModalOpen(true));
           }
         },
       });
@@ -291,11 +289,29 @@ function App() {
           )}
 
           {ready && !unlocked && currentState === 'LOCKED_GATE' && (
-            <CountdownSign serverNowMs={serverNow} />
+            <>
+              <CountdownSign serverNowMs={serverNow} />
+              <button
+                type="button"
+                class="octopus-hotspot interactive"
+                aria-label="Secret beach pass"
+                style={{
+                  left: `${octopusSpot.x}px`,
+                  top: `${octopusSpot.y}px`,
+                  width: `${octopusSpot.size}px`,
+                  height: `${octopusSpot.size}px`,
+                }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  sandRef.current?.bounceOctopus();
+                  setPasswordModalOpen(true);
+                }}
+              />
+            </>
           )}
 
-          {ready && !unlocked && passwordModalOpen && PasswordComp && (
-            <PasswordComp
+          {ready && !unlocked && passwordModalOpen && (
+            <PasswordDialog
               onClose={() => setPasswordModalOpen(false)}
               onSubmitPassword={handlePasswordSubmit}
             />

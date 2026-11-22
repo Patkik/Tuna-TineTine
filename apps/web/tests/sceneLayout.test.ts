@@ -65,6 +65,15 @@ describe('Clean Beach SceneLayout (Zero Sand Mounds & Zero Stage 1 Spoilers)', (
     expect(layout.octopus.x).toBeLessThan(360);
   });
 
+  it('keeps the secret octopus unobstructed by the bottom-center countdown area on mobile viewports', () => {
+    const seLandscape = computeSceneLayout(667, 375);
+    expect(seLandscape.octopus.x).toBeLessThan(190);
+    expect(seLandscape.octopus.y).toBeLessThan(350);
+
+    const sePortrait = computeSceneLayout(375, 667);
+    expect(sePortrait.octopus.y).toBeLessThan(470);
+  });
+
   it('contains zero Japanese calligraphy or birthday spoilers in Stage 1 SVGs', () => {
     const combined = JSON.stringify(STAGE1_SVGS);
     expect(combined).not.toMatch(/[\u3040-\u30FF\u4E00-\u9FAF]/);
